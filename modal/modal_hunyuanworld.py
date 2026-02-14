@@ -17,6 +17,10 @@ APP_NAME = "hunyuanworld-modal"
 REPO_URL = "https://github.com/Tencent-Hunyuan/HunyuanWorld-1.0.git"
 REPO_DIR = Path("/opt/HunyuanWorld-1.0")
 RUNS_DIR = Path("/data/runs")
+REAL_ESRGAN_REPO = "https://github.com/xinntao/Real-ESRGAN.git"
+REAL_ESRGAN_REF = "v0.3.0"
+MO_GE_REPO = "https://github.com/microsoft/MoGe.git"
+UTILS3D_REPO = "https://github.com/EasternJournalist/utils3d.git"
 
 app = modal.App(APP_NAME)
 world_volume = modal.Volume.from_name("hunyuanworld-artifacts", create_if_missing=True)
@@ -34,53 +38,61 @@ image = (
         "ffmpeg",
         "libgl1",
         "libglib2.0-0",
+        "pkg-config",
+        "libavformat-dev",
+        "libavcodec-dev",
+        "libavdevice-dev",
+        "libavutil-dev",
+        "libavfilter-dev",
+        "libswscale-dev",
+        "libswresample-dev",
     )
     .pip_install(
+        # Official HunyuanWorld CUDA 12.4 torch stack.
         "torch==2.5.0",
         "torchvision==0.20.0",
         "torchaudio==2.5.0",
         extra_index_url="https://download.pytorch.org/whl/cu124",
     )
-    .pip_install(
-        "huggingface_hub[cli]",
-        "transformers==4.51.0",
-        "diffusers==0.34.0",
-        "accelerate==1.6.0",
-        "tokenizers==0.21.1",
-        "safetensors==0.5.3",
-        "sentencepiece==0.2.0",
-        "peft==0.15.0",
-        "einops==0.4.1",
-        "timm==1.0.13",
-        "opencv-python==4.11.0.86",
-        "opencv-python-headless==4.11.0.86",
-        "scikit-image==0.24.0",
-        "imageio==2.37.0",
-        "imageio-ffmpeg==0.4.9",
-        "onnx==1.17.0",
-        "onnxruntime-gpu==1.21.1",
-        "open3d>=0.18.0",
-        "trimesh>=4.6.1",
-        "xformers==0.0.28.post2",
-        "fastapi",
-        "uvicorn",
-        "python-multipart",
-    )
     .run_commands(
-        f"git clone {REPO_URL} {REPO_DIR}",
-        # Official docs recommend conda; this pip fallback is for Modal image builds.
-        f"if [ -f {REPO_DIR}/requirements.txt ]; then pip install -r {REPO_DIR}/requirements.txt; fi",
-        # Real-ESRGAN dependency chain used by scene generation.
-        "git clone https://github.com/xinntao/Real-ESRGAN.git /opt/Real-ESRGAN",
-        "pip install basicsr-fixed facexlib gfpgan",
-        "if [ -f /opt/Real-ESRGAN/requirements.txt ]; then pip install -r /opt/Real-ESRGAN/requirements.txt; fi",
-        "cd /opt/Real-ESRGAN && python setup.py develop",
-        # ZIM dependencies used by semantic layering in the pipeline.
-        "git clone https://github.com/naver-ai/ZIM.git /opt/ZIM",
-        "cd /opt/ZIM && pip install -e .",
+        "python3 -m pip install --upgrade pip",
+        f"git clone --depth 1 {REPO_URL} {REPO_DIR}",
+        # Install Cython first (required for building av and other packages)
+        "python3 -m pip install --no-cache-dir Cython",
+        # Core dependencies from HunyuanWorld (docker/HunyuanWorld.yaml pip section)
+        "python3 -m pip install --no-cache-dir "
+        "transformers==4.51.0 diffusers==0.34.0 accelerate==1.6.0 "
+        "huggingface-hub==0.30.2 safetensors==0.5.3 "
+        "timm==1.0.13 einops==0.4.1 kornia==0.8.0 "
+        "opencv-python==4.11.0.86 albumentations==0.5.2 imageio==2.37.0 "
+        "xformers==0.0.28.post2 omegaconf==2.1.2 hydra-core==1.1.0 "
+        "easydict==1.9 addict==2.4.0 loguru==0.7.3 tqdm==4.67.1 "
+        "sentencepiece==0.2.0 ultralytics==8.3.74 "
+        "scikit-image==0.24.0 scipy==1.15.2 matplotlib==3.10.1 "
+        "peft==0.15.0 qwen-vl-utils==0.0.8 "
+        "Pillow numpy pandas "
+        "decord onnx onnxruntime-gpu "
+        "tokenizers segment-anything==1.0 "
+        "pytorch-lightning torchmetrics",
+        # av and flash-attn require compilation, install separately with fallback
+        "python3 -m pip install --no-cache-dir av==14.4.0 || echo 'av install failed, continuing...'",
+        "python3 -m pip install --no-cache-dir flash-attn --no-build-isolation || echo 'flash-attn install failed, continuing...'",
+        # Modal serving and auth entrypoints only.
+        "python3 -m pip install --no-cache-dir huggingface_hub[cli] fastapi uvicorn python-multipart",
+        # Keep these explicit because they are required by scenegen outputs and listed upstream.
+        "python3 -m pip install --no-cache-dir open3d>=0.18.0 trimesh>=4.6.1",
+        # Pin Real-ESRGAN stack to avoid basicsr/torchvision API drift.
+        "python3 -m pip install --no-cache-dir basicsr-fixed==1.4.2 facexlib==0.3.0 gfpgan==1.3.8 realesrgan==0.3.0",
+        f"git clone --depth 1 --branch {REAL_ESRGAN_REF} {REAL_ESRGAN_REPO} /opt/Real-ESRGAN",
+        "cd /opt/Real-ESRGAN && python3 -m pip install --no-cache-dir -e . --no-deps",
+        # ZIM dependency
+        "git clone --depth 1 https://github.com/naver-ai/ZIM.git /opt/ZIM",
+        "cd /opt/ZIM && python3 -m pip install --no-cache-dir -e .",
         "mkdir -p /opt/ZIM/zim_vit_l_2092",
         "wget -q -O /opt/ZIM/zim_vit_l_2092/encoder.onnx https://huggingface.co/naver-iv/zim-anything-vitl/resolve/main/zim_vit_l_2092/encoder.onnx",
         "wget -q -O /opt/ZIM/zim_vit_l_2092/decoder.onnx https://huggingface.co/naver-iv/zim-anything-vitl/resolve/main/zim_vit_l_2092/decoder.onnx",
+        f"python3 -m pip install --no-cache-dir git+{MO_GE_REPO}",
+        f"python3 -m pip install --no-cache-dir git+{UTILS3D_REPO}",
     )
 )
 
@@ -97,19 +109,20 @@ def _run(command: list[str], cwd: Path | None = None) -> None:
         text=True,
         check=False,
     )
-    if result.returncode != 0:
-        raise CommandError(
-            "\n".join(
-                [
-                    f"Command failed: {' '.join(command)}",
-                    f"exit_code={result.returncode}",
-                    "stdout:",
-                    result.stdout,
-                    "stderr:",
-                    result.stderr,
-                ]
-            )
+    if result.returncode == 0:
+        return
+    raise CommandError(
+        "\n".join(
+            [
+                f"Command failed: {' '.join(command)}",
+                f"exit_code={result.returncode}",
+                "stdout:",
+                result.stdout,
+                "stderr:",
+                result.stderr,
+            ]
         )
+    )
 
 
 def _list_files(root: Path) -> list[str]:
@@ -339,4 +352,4 @@ def main(
         cache=cache,
     )
     print(json.dumps(result, indent=2))
-    print("Deploy viewer with: modal deploy modal_hunyuanworld.py")
+    print("Deploy viewer with: modal deploy modal/modal_hunyuanworld.py")
