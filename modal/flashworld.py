@@ -33,6 +33,7 @@ image = (
         "wget",
         "cmake",
         "build-essential",
+        "clang",
         "ninja-build",
         "ffmpeg",
         "libgl1",
@@ -45,6 +46,7 @@ image = (
         "libavfilter-dev",
         "libswscale-dev",
         "libswresample-dev",
+        "zlib1g-dev",
     )
     # Step 1: PyTorch stack pinned to upstream requirements.txt
     .pip_install(
@@ -84,7 +86,9 @@ image = (
         "fastapi",
         "python-multipart",
     )
-    # Step 4: Compile gsplat from the exact pinned commit (needs CUDA toolkit + torch)
+    # Step 4: Ensure build tools are available (needed for --no-build-isolation)
+    .pip_install("wheel", "setuptools")
+    # Step 5: Compile gsplat from the exact pinned commit (needs CUDA toolkit + torch)
     .run_commands(
         "TORCH_CUDA_ARCH_LIST='8.0;8.6;8.9;9.0+PTX' "
         "CUDA_HOME=/usr/local/cuda "

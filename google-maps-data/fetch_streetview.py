@@ -1,47 +1,38 @@
 """
-Street View Data Fetcher
-Inspired by https://github.com/stiles/streetview-dl
+Street View Data Fetcher (optimized for HunyuanWorld-Mirror)
 
-Downloads full 360° equirectangular panoramas and directional crops
-for a given lat/lng coordinate using Google's Map Tiles API.
+Downloads equirectangular panoramas from Google Map Tiles API, then
+reprojects into clean perspective views with proper spherical math.
+
+Output: zero-padded sequential images (000.jpg, 001.jpg, ...) in a flat
+folder, ready for infer.py --input_path.
 
 Usage:
-    python fetch_streetview.py --lat 37.4219999 --lng -122.0840575
-    python fetch_streetview.py --lat 37.4219999 --lng -122.0840575 --quality high --directions
-    python fetch_streetview.py --lat 37.4219999 --lng -122.0840575 --radius 100 --grid 5
+    python3 fetch_streetview.py --lat 37.4276085 --lng -122.1669747
+    python3 fetch_streetview.py --lat 37.4276085 --lng -122.1669747 --num-views 8 --fov 80
 
 Requires:
-    - GOOGLE_MAPS_API_KEY environment variable
-    - pip install requests Pillow
+    - GOOGLE_MAPS_API_KEY env var
+    - pip install requests Pillow numpy
 """
 
 import os
 import sys
 import math
+import json
 import argparse
 import requests
+import numpy as np
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image
+from io import BytesIO
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 
-
 API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 TILES_BASE = "https://tile.googleapis.com"
-
 ZOOM_LEVELS = {"low": 3, "medium": 4, "high": 5}
-
-DIRECTIONS = {
-    "north":     0,
-    "northeast": 45,
-    "east":      90,
-    "southeast": 135,
-    "south":     180,
-    "southwest": 225,
-    "west":      270,
-    "northwest": 315,
-}
 
 
 def create_http_client():
@@ -51,8 +42,7 @@ def create_http_client():
     return session
 
 
-def create_tiles_session(http: requests.Session):
-    """Create a Map Tiles API session for streetview tiles."""
+def create_tiles_session(http):
     resp = http.post(
         f"{TILES_BASE}/v1/createSession",
         params={"key": API_KEY},
@@ -60,276 +50,242 @@ def create_tiles_session(http: requests.Session):
         timeout=30,
     )
     resp.raise_for_status()
-    data = resp.json()
-    return data["session"]
+    return resp.json()["session"]
 
 
-def get_pano_metadata(http: requests.Session, session_token: str, lat: float, lng: float, radius: int = 50):
-    """Look up a Street View panorama by coordinates."""
+def get_pano_metadata(http, session_token, lat, lng, radius=50):
     resp = http.get(
         f"{TILES_BASE}/v1/streetview/metadata",
-        params={
-            "key": API_KEY,
-            "session": session_token,
-            "lat": lat,
-            "lng": lng,
-            "radius": radius,
-        },
+        params={"key": API_KEY, "session": session_token, "lat": lat, "lng": lng, "radius": radius},
         timeout=30,
     )
     resp.raise_for_status()
     return resp.json()
 
 
-def get_pano_metadata_by_id(http: requests.Session, session_token: str, pano_id: str):
-    """Look up panorama metadata by pano ID."""
+def fetch_tile(http, session_token, pano_id, zoom, x, y):
     resp = http.get(
-        f"{TILES_BASE}/v1/streetview/metadata",
-        params={
-            "key": API_KEY,
-            "session": session_token,
-            "panoId": pano_id,
-        },
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-
-def fetch_tile(http: requests.Session, session_token: str, pano_id: str, zoom: int, x: int, y: int):
-    """Download a single tile."""
-    url = f"{TILES_BASE}/v1/streetview/tiles/{zoom}/{x}/{y}"
-    resp = http.get(
-        url,
-        params={
-            "key": API_KEY,
-            "session": session_token,
-            "panoId": pano_id,
-        },
+        f"{TILES_BASE}/v1/streetview/tiles/{zoom}/{x}/{y}",
+        params={"key": API_KEY, "session": session_token, "panoId": pano_id},
         timeout=30,
     )
     resp.raise_for_status()
     return resp.content
 
 
-def stitch_panorama(http: requests.Session, session_token: str, pano_id: str, metadata: dict, quality: str = "medium"):
-    """Download all tiles and stitch into a full equirectangular panorama."""
+def stitch_panorama(http, session_token, pano_id, metadata, quality="medium"):
     zoom = ZOOM_LEVELS.get(quality, 4)
-
-    pano_width = metadata["imageWidth"]
-    pano_height = metadata["imageHeight"]
-    tile_width = metadata["tileWidth"]
-    tile_height = metadata["tileHeight"]
+    pano_w, pano_h = metadata["imageWidth"], metadata["imageHeight"]
+    tile_w, tile_h = metadata["tileWidth"], metadata["tileHeight"]
 
     scale = 2 ** (5 - zoom)
-    scaled_width = math.ceil(pano_width / scale)
-    scaled_height = math.ceil(pano_height / scale)
+    sw, sh = math.ceil(pano_w / scale), math.ceil(pano_h / scale)
+    cols, rows = math.ceil(sw / tile_w), math.ceil(sh / tile_h)
 
-    cols = math.ceil(scaled_width / tile_width)
-    rows = math.ceil(scaled_height / tile_height)
-
-    canvas = Image.new("RGB", (cols * tile_width, rows * tile_height))
-
-    print(f"  Downloading {cols * rows} tiles at zoom {zoom} ({cols}x{rows} grid)...")
+    canvas = Image.new("RGB", (cols * tile_w, rows * tile_h))
+    print(f"  Downloading {cols * rows} tiles at zoom {zoom}...")
 
     tiles = {}
     with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = {}
-        for y in range(rows):
-            for x in range(cols):
-                f = pool.submit(fetch_tile, http, session_token, pano_id, zoom, x, y)
-                futures[f] = (x, y)
-
+        futures = {pool.submit(fetch_tile, http, session_token, pano_id, zoom, x, y): (x, y)
+                   for y in range(rows) for x in range(cols)}
         for f in as_completed(futures):
-            x, y = futures[f]
-            tiles[(x, y)] = f.result()
+            xy = futures[f]
+            tiles[xy] = f.result()
 
     for (x, y), data in tiles.items():
-        from io import BytesIO
-        tile_img = Image.open(BytesIO(data))
-        canvas.paste(tile_img, (x * tile_width, y * tile_height))
+        canvas.paste(Image.open(BytesIO(data)), (x * tile_w, y * tile_h))
 
-    canvas = canvas.crop((0, 0, scaled_width, scaled_height))
-    return canvas
+    return canvas.crop((0, 0, sw, sh))
 
 
-def crop_direction(pano: Image.Image, heading_deg: float, fov_deg: float = 90):
+def equirect_to_perspective(pano: Image.Image, heading_deg: float, pitch_deg: float = 0,
+                            fov_deg: float = 80, out_size: int = 720) -> Image.Image:
     """
-    Crop a directional view from an equirectangular panorama.
-
-    heading_deg: compass heading (0=north, 90=east, etc.)
-    fov_deg: horizontal field of view for the crop
+    Proper spherical reprojection from equirectangular to perspective (rectilinear).
     """
-    w, h = pano.size
+    pano_arr = np.array(pano)
+    h_pano, w_pano = pano_arr.shape[:2]
 
-    center_x = (heading_deg / 360.0) * w
-    crop_width = (fov_deg / 360.0) * w
-    crop_height = h // 2  # crop the middle 50% vertically (horizon band)
+    fov = math.radians(fov_deg)
+    heading = math.radians(heading_deg)
+    pitch = math.radians(pitch_deg)
 
-    left = int(center_x - crop_width / 2)
-    right = int(center_x + crop_width / 2)
-    top = int(h * 0.25)
-    bottom = int(h * 0.75)
+    f = out_size / (2 * math.tan(fov / 2))
 
-    if left < 0:
-        # wraps around the panorama
-        part_right = pano.crop((w + left, top, w, bottom))
-        part_left = pano.crop((0, top, right, bottom))
-        result = Image.new("RGB", (int(crop_width), bottom - top))
-        result.paste(part_right, (0, 0))
-        result.paste(part_left, (part_right.width, 0))
-        return result
-    elif right > w:
-        part_left = pano.crop((left, top, w, bottom))
-        part_right = pano.crop((0, top, right - w, bottom))
-        result = Image.new("RGB", (int(crop_width), bottom - top))
-        result.paste(part_left, (0, 0))
-        result.paste(part_right, (part_left.width, 0))
-        return result
-    else:
-        return pano.crop((left, top, right, bottom))
+    u = np.arange(out_size, dtype=np.float64) - out_size / 2
+    v = np.arange(out_size, dtype=np.float64) - out_size / 2
+    u, v = np.meshgrid(u, v)
+
+    # Ray directions in camera space
+    x, y, z = u, v, np.full_like(u, f)
+    norm = np.sqrt(x**2 + y**2 + z**2)
+    x, y, z = x / norm, y / norm, z / norm
+
+    # Rotate by pitch (around x-axis)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    y, z = cp * y + sp * z, -sp * y + cp * z
+
+    # Rotate by heading (around y-axis)
+    ch, sh = math.cos(heading), math.sin(heading)
+    x, z = ch * x + sh * z, -sh * x + ch * z
+
+    # Spherical coordinates -> equirectangular pixel coords
+    lon = np.arctan2(x, z)
+    lat = np.arcsin(np.clip(y, -1, 1))
+
+    px = np.clip((lon / (2 * math.pi) + 0.5) * w_pano, 0, w_pano - 1)
+    py = np.clip((lat / math.pi + 0.5) * h_pano, 0, h_pano - 1)
+
+    # Bilinear interpolation
+    x0, y0 = np.floor(px).astype(int), np.floor(py).astype(int)
+    x1, y1 = np.minimum(x0 + 1, w_pano - 1), np.minimum(y0 + 1, h_pano - 1)
+    dx, dy = (px - x0)[:, :, None], (py - y0)[:, :, None]
+
+    result = (pano_arr[y0, x0] * (1-dx) * (1-dy) + pano_arr[y0, x1] * dx * (1-dy) +
+              pano_arr[y1, x0] * (1-dx) * dy + pano_arr[y1, x1] * dx * dy)
+
+    return Image.fromarray(result.astype(np.uint8))
 
 
-def fetch_for_location(lat: float, lng: float, output_dir: Path, quality: str = "medium",
-                       crop_directions: bool = True, radius: int = 50, fov: float = 90):
-    """Fetch the full panorama and directional crops for a single location."""
+def compute_intrinsics(fov_deg: float, image_size: int) -> list:
+    """Compute [3,3] camera intrinsics matrix from FOV and image size."""
+    f = image_size / (2 * math.tan(math.radians(fov_deg) / 2))
+    cx = cy = image_size / 2.0
+    return [[f, 0, cx], [0, f, cy], [0, 0, 1]]
+
+
+def compute_camera_pose(heading_deg: float, pitch_deg: float = 0) -> list:
+    """
+    Build a [4,4] camera-to-world matrix (OpenCV convention) from heading/pitch.
+    For a single-point capture, translation is zero — all views share the same origin.
+    """
+    h = math.radians(heading_deg)
+    p = math.radians(pitch_deg)
+
+    # Rotation: heading around Y, then pitch around X
+    ch, sh = math.cos(h), math.sin(h)
+    cp, sp = math.cos(p), math.sin(p)
+
+    R = [
+        [ch,      sh * sp,   sh * cp,  0],
+        [0,       cp,        -sp,      0],
+        [-sh,     ch * sp,   ch * cp,  0],
+        [0,       0,         0,        1],
+    ]
+    return R
+
+
+def fetch_for_location(lat, lng, output_dir, quality="medium", radius=50,
+                       fov=80, pitch=0, num_views=8, target_size=720):
     http = create_http_client()
-
     print(f"\nFetching Street View for ({lat}, {lng})...")
 
     session_token = create_tiles_session(http)
-    print("  Session created.")
-
     metadata = get_pano_metadata(http, session_token, lat, lng, radius)
 
     if "panoId" not in metadata:
-        print(f"  No Street View imagery found at ({lat}, {lng}) within {radius}m radius.")
+        print(f"  No Street View imagery found within {radius}m.")
         return None
 
     pano_id = metadata["panoId"]
-    pano_lat = metadata.get("lat", lat)
-    pano_lng = metadata.get("lng", lng)
-    date = metadata.get("date", "unknown")
-    copyright_info = metadata.get("copyright", "")
-
     print(f"  Pano ID: {pano_id}")
-    print(f"  Location: ({pano_lat}, {pano_lng})")
-    print(f"  Date: {date}")
+    print(f"  Date: {metadata.get('date', 'unknown')}")
     print(f"  Size: {metadata.get('imageWidth', '?')}x{metadata.get('imageHeight', '?')}")
 
-    loc_dir = output_dir / f"{lat}_{lng}"
-    loc_dir.mkdir(parents=True, exist_ok=True)
+    # Output folder — flat, ready for infer.py --input_path
+    scene_dir = output_dir / f"{lat}_{lng}"
+    scene_dir.mkdir(parents=True, exist_ok=True)
 
-    # Download and stitch the full panorama
+    # Download and stitch full panorama
     pano_img = stitch_panorama(http, session_token, pano_id, metadata, quality)
+    pano_img.save(scene_dir / "panorama_full.jpg", "JPEG", quality=95)
+    print(f"  Full panorama: {pano_img.size[0]}x{pano_img.size[1]}")
 
-    pano_path = loc_dir / "panorama_full.jpg"
-    pano_img.save(pano_path, "JPEG", quality=95)
-    print(f"  Saved full panorama: {pano_path}")
+    # Extract perspective views
+    step = 360.0 / num_views
+    headings = [i * step for i in range(num_views)]
+    intrinsics = compute_intrinsics(fov, target_size)
+    poses = []
 
-    # Crop directional views
-    if crop_directions:
-        directions_dir = loc_dir / "directions"
-        directions_dir.mkdir(exist_ok=True)
+    print(f"  Extracting {num_views} views (every {step:.0f}°, FOV {fov}°, {target_size}x{target_size})...")
+    for i, heading in enumerate(headings):
+        view = equirect_to_perspective(pano_img, heading, pitch_deg=pitch,
+                                       fov_deg=fov, out_size=target_size)
+        filename = f"{i:03d}.jpg"
+        view.save(scene_dir / filename, "JPEG", quality=95)
+        poses.append(compute_camera_pose(heading, pitch))
+        print(f"  {filename} — heading {heading:.0f}°")
 
-        for name, heading in DIRECTIONS.items():
-            crop = crop_direction(pano_img, heading, fov)
-            crop_path = directions_dir / f"{name}_{heading}deg.jpg"
-            crop.save(crop_path, "JPEG", quality=90)
-            print(f"  Saved {name} ({heading}°): {crop_path}")
+    # Save camera metadata for HunyuanWorld-Mirror priors
+    camera_data = {
+        "pano_id": pano_id,
+        "lat": lat,
+        "lng": lng,
+        "date": metadata.get("date", ""),
+        "fov_deg": fov,
+        "pitch_deg": pitch,
+        "num_views": num_views,
+        "image_size": target_size,
+        "intrinsics": intrinsics,
+        "poses": poses,
+        "headings": headings,
+    }
+    with open(scene_dir / "camera_meta.json", "w") as f:
+        json.dump(camera_data, f, indent=2)
 
-    # Write metadata
-    meta_path = loc_dir / "metadata.txt"
-    with open(meta_path, "w") as f:
-        f.write(f"pano_id: {pano_id}\n")
-        f.write(f"lat: {pano_lat}\n")
-        f.write(f"lng: {pano_lng}\n")
-        f.write(f"date: {date}\n")
-        f.write(f"copyright: {copyright_info}\n")
-        f.write(f"image_width: {metadata.get('imageWidth', '')}\n")
-        f.write(f"image_height: {metadata.get('imageHeight', '')}\n")
-        f.write(f"quality: {quality}\n")
-
-    print(f"  Metadata saved: {meta_path}")
+    print(f"  Camera intrinsics + poses saved to camera_meta.json")
     return pano_id
 
 
-def generate_grid_points(center_lat: float, center_lng: float, grid_size: int, spacing_meters: float = 50):
-    """
-    Generate a grid of lat/lng points around a center coordinate.
-    Useful for bulk-downloading street view data for an area.
-    """
+def generate_grid_points(center_lat, center_lng, grid_size, spacing_meters=50):
     points = []
-    # approximate degrees per meter
-    lat_per_meter = 1 / 111320.0
-    lng_per_meter = 1 / (111320.0 * math.cos(math.radians(center_lat)))
-
+    lat_per_m = 1 / 111320.0
+    lng_per_m = 1 / (111320.0 * math.cos(math.radians(center_lat)))
     half = grid_size // 2
     for dy in range(-half, half + 1):
         for dx in range(-half, half + 1):
-            lat = center_lat + dy * spacing_meters * lat_per_meter
-            lng = center_lng + dx * spacing_meters * lng_per_meter
-            points.append((lat, lng))
+            points.append((center_lat + dy * spacing_meters * lat_per_m,
+                           center_lng + dx * spacing_meters * lng_per_m))
     return points
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Download Street View panoramas and directional data")
-    parser.add_argument("--lat", type=float, required=True, help="Latitude")
-    parser.add_argument("--lng", type=float, required=True, help="Longitude")
-    parser.add_argument("--quality", choices=["low", "medium", "high"], default="medium",
-                        help="Image quality/resolution (default: medium)")
-    parser.add_argument("--radius", type=int, default=50,
-                        help="Search radius in meters for finding panoramas (default: 50)")
-    parser.add_argument("--directions", action="store_true", default=True,
-                        help="Crop directional views (N/NE/E/SE/S/SW/W/NW)")
-    parser.add_argument("--no-directions", action="store_false", dest="directions",
-                        help="Skip directional crops, only save full panorama")
-    parser.add_argument("--fov", type=float, default=90,
-                        help="Field of view for directional crops in degrees (default: 90)")
-    parser.add_argument("--output", type=str, default="./output",
-                        help="Output directory (default: ./output)")
-    parser.add_argument("--grid", type=int, default=0,
-                        help="Generate an NxN grid of points around the pin (e.g., --grid 5 for 5x5)")
-    parser.add_argument("--grid-spacing", type=float, default=50,
-                        help="Spacing between grid points in meters (default: 50)")
+    parser = argparse.ArgumentParser(description="Download Street View data for 3D reconstruction")
+    parser.add_argument("--lat", type=float, required=True)
+    parser.add_argument("--lng", type=float, required=True)
+    parser.add_argument("--quality", choices=["low", "medium", "high"], default="medium")
+    parser.add_argument("--radius", type=int, default=50)
+    parser.add_argument("--fov", type=float, default=80, help="FOV in degrees (default: 80)")
+    parser.add_argument("--pitch", type=float, default=0)
+    parser.add_argument("--num-views", type=int, default=8, help="Number of views around 360 (default: 8)")
+    parser.add_argument("--target-size", type=int, default=720, help="Output image size (default: 720)")
+    parser.add_argument("--output", type=str, default="./output")
+    parser.add_argument("--grid", type=int, default=0)
+    parser.add_argument("--grid-spacing", type=float, default=50)
 
     args = parser.parse_args()
 
     if not API_KEY:
-        print("Error: Set the GOOGLE_MAPS_API_KEY environment variable.")
-        print("  export GOOGLE_MAPS_API_KEY='your-api-key'")
+        print("Error: Set GOOGLE_MAPS_API_KEY environment variable.")
         sys.exit(1)
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.grid > 0:
-        points = generate_grid_points(args.lat, args.lng, args.grid, args.grid_spacing)
-        print(f"Generated {len(points)} grid points ({args.grid}x{args.grid}, {args.grid_spacing}m spacing)")
-    else:
-        points = [(args.lat, args.lng)]
+    points = (generate_grid_points(args.lat, args.lng, args.grid, args.grid_spacing)
+              if args.grid > 0 else [(args.lat, args.lng)])
 
-    seen_panos = set()
-    success_count = 0
-
+    seen = set()
     for i, (lat, lng) in enumerate(points):
         print(f"\n--- Point {i+1}/{len(points)} ---")
-        pano_id = fetch_for_location(
-            lat, lng, output_dir,
-            quality=args.quality,
-            crop_directions=args.directions,
-            radius=args.radius,
-            fov=args.fov,
-        )
-        if pano_id:
-            if pano_id in seen_panos:
-                print(f"  (Duplicate pano, already downloaded)")
-            else:
-                seen_panos.add(pano_id)
-                success_count += 1
+        pid = fetch_for_location(lat, lng, output_dir, quality=args.quality, radius=args.radius,
+                                 fov=args.fov, pitch=args.pitch, num_views=args.num_views,
+                                 target_size=args.target_size)
+        if pid and pid not in seen:
+            seen.add(pid)
 
-    print(f"\nDone! Downloaded {success_count} unique panoramas to {output_dir}/")
+    print(f"\nDone! {len(seen)} unique panoramas to {output_dir}/")
 
 
 if __name__ == "__main__":
