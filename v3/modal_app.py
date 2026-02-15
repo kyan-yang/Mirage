@@ -449,20 +449,17 @@ def generate_video(prompt: str, run_id: str) -> bytes:
     video_path = run_dir / "generated_video.mp4"
 
     try:
-        # Download video file from Google's servers using the SDK
+        # Get video data from the Video object
         video_file = generated_video.video
 
-        # The video_file should have a name attribute we can use with the SDK
-        if hasattr(video_file, 'name'):
-            # Use the SDK's download method - it handles authentication correctly
-            video_data = client.files.download(name=video_file.name)
-            video_path.write_bytes(video_data)
-        elif hasattr(video_file, 'read'):
-            # If the file object has a read method, use it
-            video_data = video_file.read()
-            video_path.write_bytes(video_data)
+        # The Video object has video_bytes attribute with the actual video data
+        if hasattr(video_file, 'video_bytes') and video_file.video_bytes:
+            video_path.write_bytes(video_file.video_bytes)
+        elif hasattr(video_file, 'save'):
+            # Use the save method if available
+            video_file.save(str(video_path))
         else:
-            raise RuntimeError(f"Unknown video file format: {type(video_file)}, attributes: {dir(video_file)}")
+            raise RuntimeError(f"Video object missing video_bytes or save method. Type: {type(video_file)}")
     except Exception as e:
         raise RuntimeError(f"Failed to download/save video: {e}")
 
