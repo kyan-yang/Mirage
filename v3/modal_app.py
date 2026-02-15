@@ -319,7 +319,7 @@ def _get_video_duration(video_path: Path) -> float:
         return 8.0  # Default to 8 seconds (Veo's standard duration)
 
 
-def _calculate_dynamic_fps(video_path: Path, target_frames: int = 23) -> float:
+def _calculate_dynamic_fps(video_path: Path, target_frames: int = 23) -> int:
     """Calculate FPS to extract the target number of frames from video.
 
     Args:
@@ -327,22 +327,22 @@ def _calculate_dynamic_fps(video_path: Path, target_frames: int = 23) -> float:
         target_frames: Target number of frames to extract (default 23, which is in the 21-25 range)
 
     Returns:
-        Calculated FPS value to achieve target frame count
+        Calculated FPS value (as integer) to achieve target frame count
     """
     duration = _get_video_duration(video_path)
     if duration <= 0:
         print(f"Warning: Invalid video duration {duration}, using default fps=3")
-        return 3.0
+        return 3
 
     # Calculate fps to get target_frames
-    fps = target_frames / duration
+    fps_float = target_frames / duration
 
-    # Ensure reasonable bounds (at least 1 fps)
-    fps = max(1.0, fps)
+    # Round to nearest integer, ensuring at least 1 fps
+    fps = max(1, round(fps_float))
 
     # Calculate actual frame count that will be extracted
     actual_frames = int(duration * fps)
-    print(f"Video duration: {duration:.2f}s, target frames: {target_frames}, calculated fps: {fps:.2f}, expected frames: {actual_frames}")
+    print(f"Video duration: {duration:.2f}s, target frames: {target_frames}, calculated fps: {fps} (from {fps_float:.2f}), expected frames: {actual_frames}")
 
     return fps
 
@@ -357,11 +357,9 @@ def _calculate_dynamic_fps(video_path: Path, target_frames: int = 23) -> float:
     secrets=[modal.Secret.from_name("gemini-api-key")],
     timeout=60,
 )
+
 def expand_prompt(short_prompt: str, category: str = "autonomous") -> str:
-    """
-    Uses Gemini to expand a scenario into a technically optimized video prompt 
-    specifically for 3D Gaussian Splatting (3DGS) reconstruction.
-    """
+    """Use Gemini to expand a short scenario into a video prompt optimized for 3D reconstruction."""
     from google import genai
 
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -370,52 +368,60 @@ def expand_prompt(short_prompt: str, category: str = "autonomous") -> str:
 
     client = genai.Client(api_key=api_key)
 
-    # 3DGS Technical Requirements (The "Secret Sauce")
-    gs_technical_base = """
-CRITICAL 3DGS RECONSTRUCTION RULES:
-- CAMERA PATH: Must be a continuous, slow-speed orbital arc or curvilinear dolly move. NO stationary pans or tilts.
-- PARALLAX: Ensure foreground objects shift significantly against the background to provide depth anchors.
-- STATIC SCENE: 100% geometric stasis. No moving cars, no swaying trees, no walking people, no flickering lights.
-- TEXTURE DENSITY: Include high-frequency details (asphalt grit, concrete cracks, fabric weave, surface scuffs) to avoid 'flat' artifacts.
-- GLOBAL SHUTTER AESTHETIC: Zero motion blur. Every frame must be crisp, sharp, and high-resolution.
-- LIGHTING: Baked, consistent global illumination. No moving shadows or lens flares.
-- LOOP CLOSURE: The camera should see the same landmark from at least two distinct angles separated by 30-90 degrees."""
-
-    # Domain-specific refinements
+    # Domain-specific instructions
     if category == "autonomous":
         domain_instructions = """
-AUTONOMOUS DOMAIN OPTIMIZATION:
-- ENVIRONMENT: Focus on road fidelity—weathered asphalt, thermal cracks, grit on curbs, and paint peeling on lane markings.
-- PERSPECTIVE: A low-altitude drone orbit or a wide-arc gimbal move around an intersection or obstacle.
-- MULTI-VIEW: Explicitly capture 'Loop Closure' by orbiting a 360-degree path around the primary road feature.
-- DEPTH: Clear separation between foreground (curbs/signs) and background (buildings/distant hills)."""
-    else:  # humanoid / workspace
+AUTONOMOUS DRIVING SPECIFIC REQUIREMENTS:
+- Camera should simulate a dashboard camera mounted on a car or a drone/gimbal view orbiting the scene
+- TRY TO GET NORTH EAST SOUTH WEST AND TOP VIEWS OF THE ROAD
+- Show the FULL ROAD ENVIRONMENT: road surface, lane markings, shoulders, curbs, traffic signs
+- MULTIPLE ANGLES: Start with a forward view, then smoothly pan around to show left side, right side, and rear views
+- Include a complete 360° orbit or multiple angle views of the key obstacles/features
+- Show DEPTH and DISTANCE: Include foreground, mid-ground, and background elements
+- Capture the CONTEXT: surrounding environment (buildings, trees, terrain on both sides of road)
+- LIGHTING CONDITIONS: Clearly establish time of day and weather conditions (sunny, overcast, night, fog, rain, snow)
+- Ground-level AND elevated views: Include both driver's perspective and bird's eye overview if possible"""
+    else:  # humanoid
         domain_instructions = """
-HUMANOID/WORKSPACE OPTIMIZATION:
-- MANIPULATION TARGETS: Macro-level detail on objects—fingerprints on glass, texture on plastic, wood grain on tables.
-- WORKSPACE: Include high clutter/detail in the background (bookshelves, tools, wires) to provide 'feature points' for the splat.
-- VIEWPOINTS: A slow, spiraling orbit (corkscrew motion) that views the target from the top, sides, and slightly below."""
+HUMANOID ROBOT SPECIFIC REQUIREMENTS:
+- TRY TO GET NORTH EAST SOUTH WEST AND TOP VIEWs
+- Show MANIPULATION TARGETS: Clear views of objects that need to be grasped, moved, or interacted with
+- MULTIPLE ANGLES: Orbit around the scene showing front, sides, and top-down views of the workspace
+- Include a complete 360° orbit or multiple angle views of the objects and surfaces
+- Show SPATIAL RELATIONSHIPS: How objects relate to each other, distances between items, surface heights
+- SURFACE DETAILS: Capture textures, materials, and physical properties (wet/dry, smooth/rough, rigid/soft)
+- WORKSPACE CONTEXT: Show the full environment - counters, tables, floors, walls, nearby furniture
+- SCALE REFERENCE: Include views that show relative sizes of objects and spaces
+- LIGHTING: Consistent indoor lighting showing all details clearly, avoiding harsh shadows"""
 
-    system_prompt = f"""You are a Photogrammetry and 3D Reconstruction Expert. 
-Your task is to turn a short scenario into a high-fidelity video prompt for AI video generators (like Sora or Kling) that will specifically be used to train 3D Gaussian Splats.
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=f"""You are an expert at creating prompts for AI video generation where the output video will be used for 3D Gaussian Splatting reconstruction and training AI models.
 
-{gs_technical_base}
+Turn this scenario into a detailed 8-second video prompt optimized for 3D reconstruction:
+
+
+CRITICAL RULES FOR GAUSSIAN SPLATTING RECONSTRUCTION:
+- CAMERA PATH: Continuous, slow-speed orbital arc or curvilinear dolly move. No 'look-around' pans.
+- TRY TO GET NORTH EAST SOUTH WEST AND TOP VIEWs
+- PARALLAX: Ensure foreground objects shift significantly against the background to define depth.
+- TEXTURE: High-frequency detail on all surfaces (peeling paint, gravel, fabric weave, scuffs). 
+- ZERO BLUR: Crystal clear, sharp focus from foreground to background; absolutely no motion blur.
+- LIGHTING: Flat, consistent global illumination. No moving shadows, no lens flares, no flickering.
+- GEOMETRIC STASIS: 100% static scene. Even 'gentle breezes' should be removed to ensure 1:1 pixel consistency across frames.
+- MULTI-VIEW: The camera must 'close the loop' or return to a previously seen angle to anchor the geometry.
+
+
 
 {domain_instructions}
 
 Scenario: {short_prompt}
 
-Respond ONLY with the expanded video prompt. Use technical, descriptive language. Focus on the camera's physical path and the minute surface details of the environment."""
-
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=system_prompt,
+Respond with ONLY the video prompt, nothing else. Make it vivid and specific, focusing on what the camera sees as it moves. ENSURE multiple camera angles are explicitly described.""",
     )
-    
     expanded = response.text.strip()
-    print(f"Expanded 3DGS Prompt ({category}):\n{expanded}")
+    print(f"Expanded prompt ({category}): {expanded}")
     return expanded
-
 # ---------------------------------------------------------------------------
 # Step 2: Generate video with Veo
 # ---------------------------------------------------------------------------
@@ -532,7 +538,7 @@ def generate_world(
     video_bytes: bytes | None = None,
     run_id: str = "",
     image_payloads: list[tuple[str, bytes]] | None = None,
-    fps: float | int = 3,
+    fps: int = 3,
     target_size: int = 518,
     web_max_splats: int = DEFAULT_WEB_MAX_SPLATS,
 ) -> dict[str, Any]:
@@ -574,7 +580,7 @@ def generate_world(
 
         # Calculate dynamic FPS to extract 21-25 frames from video
         fps = _calculate_dynamic_fps(input_path, target_frames=23)
-        print(f"Using dynamic FPS: {fps:.2f}")
+        print(f"Using dynamic FPS: {fps}")
 
     # HuggingFace login
     hf_token = os.environ.get("HUGGINGFACE_TOKEN")
