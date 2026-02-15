@@ -1,0 +1,5 @@
+# Large PLY model files
+frontend/public/models/
+
+# Preview videos/images (can be regenerated)
+frontend/public/previews/

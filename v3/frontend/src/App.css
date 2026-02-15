@@ -904,6 +904,289 @@ body {
   border-color: #555;
 }
 
+/* ---- Gallery Homepage ---- */
+
+.gallery-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  background: #000;
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  max-width: 1400px;
+  width: 100%;
+  aspect-ratio: 1;
+}
+
+.gallery-cell {
+  position: relative;
+  border: 1px solid #1a1a1a;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0a0a0a;
+  transition: border-color 0.3s;
+}
+
+.gallery-cell-item {
+  cursor: pointer;
+}
+
+.gallery-cell-item:hover {
+  border-color: #333;
+}
+
+.gallery-cell-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.coming-soon {
+  color: #333;
+  font-size: 12px;
+  font-family: "Geist Mono", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.gallery-preview {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.gallery-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gallery-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.9) 0%, transparent 50%);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 16px;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.gallery-cell-item:hover .gallery-overlay {
+  opacity: 1;
+}
+
+.gallery-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #ededed;
+  margin-bottom: 4px;
+}
+
+.gallery-action {
+  font-size: 11px;
+  font-family: "Geist Mono", monospace;
+  color: var(--green);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Center cell - Generate UI */
+
+.gallery-cell-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: linear-gradient(135deg, #0a0a0a 0%, #050505 100%);
+  overflow-y: auto;
+}
+
+.home-generate-box {
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.home-header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #ededed;
+  margin-bottom: 6px;
+}
+
+.home-header p {
+  font-size: 11px;
+  color: #666;
+  margin-bottom: 16px;
+  line-height: 1.4;
+}
+
+.home-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.home-debug-toggle {
+  margin-top: 12px;
+  padding: 6px 12px;
+  border: 1px solid #222;
+  border-radius: 6px;
+  background: transparent;
+  color: #555;
+  font-size: 11px;
+  font-family: "Geist Mono", monospace;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.home-debug-toggle:hover {
+  background: #111;
+  border-color: #333;
+}
+
+.home-debug-toggle.active {
+  background: rgba(123, 230, 96, 0.1);
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.home-hint {
+  margin-top: 12px;
+  font-size: 9px;
+  font-family: "Geist Mono", monospace;
+  color: #333;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Gallery Modal (Fullscreen Viewer) */
+
+.gallery-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 40px;
+  animation: fadeIn 0.2s;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.gallery-modal-content {
+  position: relative;
+  width: 100%;
+  max-width: 1200px;
+  height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: #0a0a0a;
+  border: 1px solid #1a1a1a;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.gallery-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #333;
+  border-radius: 8px;
+  background: rgba(10, 10, 10, 0.9);
+  color: #888;
+  font-size: 20px;
+  font-weight: 300;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(8px);
+}
+
+.gallery-modal-close:hover {
+  background: #1a1a1a;
+  border-color: #555;
+  color: #ededed;
+}
+
+.gallery-modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #1a1a1a;
+}
+
+.gallery-modal-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #ededed;
+}
+
+.gallery-modal-viewer {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.gallery-modal-loading,
+.gallery-modal-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.gallery-modal-loading {
+  color: #888;
+}
+
+.gallery-modal-error {
+  color: #ee4444;
+}
+
+.gallery-modal-hint {
+  padding: 12px 24px;
+  border-top: 1px solid #1a1a1a;
+  font-size: 10px;
+  font-family: "Geist Mono", monospace;
+  color: #444;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 /* ---- Responsive: stack on small screens ---- */
 
 @media (max-width: 768px) {
@@ -918,5 +1201,30 @@ body {
   }
   .pane-right {
     padding: 24px 20px 48px;
+  }
+
+  .gallery-grid {
+    gap: 12px;
+    padding: 20px 12px;
+  }
+
+  .gallery-cell-center {
+    padding: 20px;
+  }
+
+  .home-header h1 {
+    font-size: 16px;
+  }
+
+  .home-header p {
+    font-size: 11px;
+  }
+
+  .gallery-modal-overlay {
+    padding: 20px;
+  }
+
+  .gallery-modal-content {
+    height: 85vh;
   }
 }

@@ -7,6 +7,7 @@ import type { StepLabel } from "./components/ProgressSteps";
 import VideoPreview from "./components/VideoPreview";
 import DebugPanel from "./components/DebugPanel";
 import ResultViewer from "./components/ResultViewer";
+import HomePage from "./components/HomePage";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 const CACHE_KEY = "scenario-gen-cache";
@@ -73,6 +74,7 @@ function saveCache(state: CachedState) {
 export default function App() {
   const cached = useRef(loadCache());
 
+  const [view, setView] = useState<"home" | "generate">("home");
   const [category, setCategory] = useState<Category>("autonomous");
   const [prompt, setPrompt] = useState("");
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
@@ -126,6 +128,9 @@ export default function App() {
     const hasFiles = uploadFiles.length > 0;
     if (!hasFiles && !prompt.trim()) return;
     if (generating) return;
+
+    // Switch to generate view
+    setView("generate");
 
     // Cancel any previous request
     abortRef.current?.abort();
@@ -336,6 +341,9 @@ export default function App() {
     abortRef.current?.abort();
     abortRef.current = null;
 
+    // Return to home view
+    setView("home");
+
     // Reset all state to initial values
     setCategory("autonomous");
     setPrompt("");
@@ -363,8 +371,23 @@ export default function App() {
     try { localStorage.removeItem(CACHE_KEY); } catch { /* ignore */ }
   }, []);
 
+  // Handler for HomePage generate
+  const handleHomeGenerate = useCallback((homePrompt: string, homeCategory: Category, files: File[]) => {
+    setPrompt(homePrompt);
+    setCategory(homeCategory);
+    setUploadFiles(files);
+    // Trigger generate on next render
+    setTimeout(() => generate(), 0);
+  }, [generate]);
+
   const hasOutput = showProgress || result;
 
+  // Show HomePage
+  if (view === "home") {
+    return <HomePage onGenerate={handleHomeGenerate} />;
+  }
+
+  // Show generation view
   return (
     <div className={`layout${!hasOutput ? " centered" : ""}`}>
       <div className="pane pane-left">
