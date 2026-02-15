@@ -21,18 +21,34 @@ export default function ResultViewer({ result, apiUrl }: ResultViewerProps) {
     setError(null);
     setPlyData(null);
 
-    try {
-      const resp = await fetch(fileUrl);
-      if (!resp.ok) {
-        throw new Error(`Failed to fetch PLY (${resp.status} ${resp.statusText})`);
+    const maxRetries = 10;
+    const retryDelay = 2000;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const resp = await fetch(fileUrl);
+        if (resp.status === 404 && attempt < maxRetries - 1) {
+          // File not yet available on the volume — wait and retry
+          await new Promise((r) => setTimeout(r, retryDelay));
+          continue;
+        }
+        if (!resp.ok) {
+          throw new Error(`Failed to fetch PLY (${resp.status} ${resp.statusText})`);
+        }
+        const buf = await resp.arrayBuffer();
+        setPlyData(new Uint8Array(buf));
+        setLoading(false);
+        return;
+      } catch (err) {
+        if (attempt < maxRetries - 1) {
+          await new Promise((r) => setTimeout(r, retryDelay));
+          continue;
+        }
+        setError((err as Error).message || "Failed to load PLY file");
       }
-      const buf = await resp.arrayBuffer();
-      setPlyData(new Uint8Array(buf));
-    } catch (err) {
-      setError((err as Error).message || "Failed to load PLY file");
-    } finally {
-      setLoading(false);
     }
+
+    setLoading(false);
   }, [fileUrl]);
 
   // Auto-fetch when result changes

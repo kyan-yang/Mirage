@@ -33,5 +33,11 @@ Dont view the contents of `archive/`. That code is old and outdated versions.
 
 How to run v2 on a set of images or video?
 ```bash
-modal run v2/modal_app.py --input-dir <PATH TO IMAGE>               
+modal run v2/modal_app.py --input-dir <PATH TO IMAGE> 
+```
+
+How to run v3 on a set of images or video?
+```bash
+modal run v3/modal_app.py --input-dir <PATH TO IMAGES>
+modal run v3/modal_app.py --video-path <PATH TO VIDEO>
 ```

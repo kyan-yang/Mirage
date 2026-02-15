@@ -1,15 +1,31 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import TabSelector from "./components/TabSelector";
 import PromptInput from "./components/PromptInput";
+import ImageUpload from "./components/ImageUpload";
 import GenerateButton from "./components/GenerateButton";
 import ProgressSteps from "./components/ProgressSteps";
+import type { StepLabel } from "./components/ProgressSteps";
+import VideoPreview from "./components/VideoPreview";
 import DebugPanel from "./components/DebugPanel";
 import ResultViewer from "./components/ResultViewer";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
+const CACHE_KEY = "scenario-gen-cache";
 
 export type Category = "autonomous" | "humanoid";
+export type InputMode = "text" | "upload";
 export type StepState = "pending" | "active" | "done" | "error";
+
+const TEXT_STEP_LABELS: StepLabel[] = [
+  { key: "expand", label: "Expanding prompt with Gemini" },
+  { key: "video", label: "Generating video with Veo 3.1" },
+  { key: "world", label: "Building 3D world with HunyuanWorld-Mirror" },
+];
+
+const UPLOAD_STEP_LABELS: StepLabel[] = [
+  { key: "upload", label: "Processing uploaded files" },
+  { key: "world", label: "Building 3D world with HunyuanWorld-Mirror" },
+];
 
 export interface StepInfo {
   state: StepState;
@@ -29,33 +45,74 @@ export interface ResultData {
   gaussiansPly: string;
 }
 
+interface CachedState {
+  steps: Record<string, StepInfo>;
+  showProgress: boolean;
+  debugData: DebugData;
+  hasDebugData: boolean;
+  result: ResultData | null;
+  videoCollapsed: boolean;
+}
+
+function loadCache(): CachedState | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as CachedState;
+  } catch {
+    return null;
+  }
+}
+
+function saveCache(state: CachedState) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(state));
+  } catch {
+    // localStorage full or unavailable — ignore
+  }
+}
+
 export default function App() {
+  const cached = useRef(loadCache());
+
+  const [inputMode, setInputMode] = useState<InputMode>("text");
   const [category, setCategory] = useState<Category>("autonomous");
   const [prompt, setPrompt] = useState("");
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [debugMode, setDebugMode] = useState(false);
   const [generating, setGenerating] = useState(false);
 
-  const [steps, setSteps] = useState<Record<string, StepInfo>>({
-    expand: { state: "pending", detail: "" },
-    video: { state: "pending", detail: "" },
-    world: { state: "pending", detail: "" },
-  });
-  const [showProgress, setShowProgress] = useState(false);
+  const [steps, setSteps] = useState<Record<string, StepInfo>>(
+    cached.current?.steps ?? {
+      expand: { state: "pending", detail: "" },
+      video: { state: "pending", detail: "" },
+      world: { state: "pending", detail: "" },
+    }
+  );
+  const [showProgress, setShowProgress] = useState(cached.current?.showProgress ?? false);
 
-  const [debugData, setDebugData] = useState<DebugData>({
-    originalPrompt: "",
-    expandedPrompt: "",
-    videoUrl: "",
-    files: [],
-    runId: "",
-  });
-  const [hasDebugData, setHasDebugData] = useState(false);
+  const [debugData, setDebugData] = useState<DebugData>(
+    cached.current?.debugData ?? {
+      originalPrompt: "",
+      expandedPrompt: "",
+      videoUrl: "",
+      files: [],
+      runId: "",
+    }
+  );
+  const [hasDebugData, setHasDebugData] = useState(cached.current?.hasDebugData ?? false);
 
-  const [result, setResult] = useState<ResultData | null>(null);
+  const [result, setResult] = useState<ResultData | null>(cached.current?.result ?? null);
   const [streamError, setStreamError] = useState<string | null>(null);
+  const [videoCollapsed, setVideoCollapsed] = useState(cached.current?.videoCollapsed ?? false);
 
   // Abort controller for cancelling in-flight generation
   const abortRef = useRef<AbortController | null>(null);
+
+  // Persist key state to localStorage whenever it changes
+  useEffect(() => {
+    saveCache({ steps, showProgress, debugData, hasDebugData, result, videoCollapsed });
+  }, [steps, showProgress, debugData, hasDebugData, result, videoCollapsed]);
 
   const setStepState = useCallback(
     (step: string, state: StepState, detail?: string) => {
@@ -68,7 +125,9 @@ export default function App() {
   );
 
   const generate = useCallback(async () => {
-    if (!prompt.trim() || generating) return;
+    if (inputMode === "text" && !prompt.trim()) return;
+    if (inputMode === "upload" && uploadFiles.length === 0) return;
+    if (generating) return;
 
     // Cancel any previous request
     abortRef.current?.abort();
@@ -80,20 +139,51 @@ export default function App() {
     setResult(null);
     setStreamError(null);
     setHasDebugData(false);
-    setSteps({
-      expand: { state: "pending", detail: "" },
-      video: { state: "pending", detail: "" },
-      world: { state: "pending", detail: "" },
-    });
-    setDebugData((prev) => ({ ...prev, originalPrompt: prompt }));
+    setVideoCollapsed(false);
+
+    // Clear previous debug data (including video URL) so the old video doesn't linger
+    const freshDebug: DebugData = {
+      originalPrompt: "",
+      expandedPrompt: "",
+      videoUrl: "",
+      files: [],
+      runId: "",
+    };
+
+    if (inputMode === "upload") {
+      setSteps({
+        upload: { state: "active", detail: "" },
+        world: { state: "pending", detail: "" },
+      });
+      setDebugData(freshDebug);
+    } else {
+      setSteps({
+        expand: { state: "pending", detail: "" },
+        video: { state: "pending", detail: "" },
+        world: { state: "pending", detail: "" },
+      });
+      setDebugData({ ...freshDebug, originalPrompt: prompt });
+    }
 
     try {
-      const resp = await fetch(`${API_URL}/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, category }),
-        signal: controller.signal,
-      });
+      let resp: Response;
+
+      if (inputMode === "upload") {
+        const formData = new FormData();
+        uploadFiles.forEach((f) => formData.append("files", f));
+        resp = await fetch(`${API_URL}/upload`, {
+          method: "POST",
+          body: formData,
+          signal: controller.signal,
+        });
+      } else {
+        resp = await fetch(`${API_URL}/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt, category }),
+          signal: controller.signal,
+        });
+      }
 
       if (!resp.ok) {
         throw new Error(
@@ -146,26 +236,33 @@ export default function App() {
       setSteps((prev) => {
         const next = { ...prev };
         let foundActive = false;
-        for (const key of ["expand", "video", "world"]) {
+        for (const key of Object.keys(next)) {
           if (next[key].state === "active") {
             next[key] = { state: "error", detail: message };
             foundActive = true;
           }
         }
-        // If no step was active yet, mark expand as errored
+        // If no step was active yet, mark the first step as errored
         if (!foundActive) {
-          next["expand"] = { state: "error", detail: message };
+          const firstKey = Object.keys(next)[0];
+          if (firstKey) next[firstKey] = { state: "error", detail: message };
         }
         return next;
       });
     }
 
     setGenerating(false);
-  }, [prompt, category, generating, setStepState]);
+  }, [prompt, category, inputMode, uploadFiles, generating, setStepState]);
 
   function handleEvent(data: Record<string, unknown>) {
     const step = data.step as string;
 
+    if (step === "upload_done") {
+      const fileCount = (data.file_count as number) || 0;
+      setStepState("upload", "done", `${fileCount} file${fileCount !== 1 ? "s" : ""} ready`);
+      setDebugData((prev) => ({ ...prev, runId: (data.run_id as string) || "" }));
+      setHasDebugData(true);
+    }
     if (step === "expand_start") {
       setStepState("expand", "active");
     }
@@ -210,13 +307,15 @@ export default function App() {
       setDebugData((prev) => ({ ...prev, runId, files }));
       setResult({ runId, gaussiansPly });
       setStreamError(null);
+      // Auto-collapse video preview so the 3D viewer gets focus
+      setVideoCollapsed(true);
     }
     if (step === "error") {
       const message = (data.message as string) || "Failed";
       setStreamError(message);
       setSteps((prev) => {
         const next = { ...prev };
-        for (const key of ["expand", "video", "world"]) {
+        for (const key of Object.keys(next)) {
           if (next[key].state === "active") {
             next[key] = { state: "error", detail: message };
           }
@@ -232,6 +331,39 @@ export default function App() {
     generate();
   }, [generate]);
 
+  const handleNewChat = useCallback(() => {
+    // Abort any in-flight generation
+    abortRef.current?.abort();
+    abortRef.current = null;
+
+    // Reset all state to initial values
+    setInputMode("text");
+    setCategory("autonomous");
+    setPrompt("");
+    setUploadFiles([]);
+    setGenerating(false);
+    setSteps({
+      expand: { state: "pending", detail: "" },
+      video: { state: "pending", detail: "" },
+      world: { state: "pending", detail: "" },
+    });
+    setShowProgress(false);
+    setDebugData({
+      originalPrompt: "",
+      expandedPrompt: "",
+      videoUrl: "",
+      files: [],
+      runId: "",
+    });
+    setHasDebugData(false);
+    setResult(null);
+    setStreamError(null);
+    setVideoCollapsed(false);
+
+    // Clear the cache so a reload also stays clean
+    try { localStorage.removeItem(CACHE_KEY); } catch { /* ignore */ }
+  }, []);
+
   const hasOutput = showProgress || result;
 
   return (
@@ -239,20 +371,53 @@ export default function App() {
       <div className="pane pane-left">
         <div className="pane-left-inner">
           <div className="header">
-            <h1>Synthetic Training Environments</h1>
+            <div className="header-row">
+              <h1>Synthetic Training Environments</h1>
+              {hasOutput && (
+                <button className="new-chat-btn" onClick={handleNewChat}>
+                  + New
+                </button>
+              )}
+            </div>
             <p>
               Generate realistic training environments for autonomous vehicles and humanoid robots.
             </p>
           </div>
-          <TabSelector category={category} onSelect={setCategory} />
-          <PromptInput
-            category={category}
-            prompt={prompt}
-            onPromptChange={setPrompt}
-          />
+          <div className="mode-toggle">
+            <button
+              className={`mode-btn${inputMode === "text" ? " active" : ""}`}
+              onClick={() => setInputMode("text")}
+            >
+              Text to 3D
+            </button>
+            <button
+              className={`mode-btn${inputMode === "upload" ? " active" : ""}`}
+              onClick={() => setInputMode("upload")}
+            >
+              Images to 3D
+            </button>
+          </div>
+
+          {inputMode === "text" ? (
+            <>
+              <TabSelector category={category} onSelect={setCategory} />
+              <PromptInput
+                category={category}
+                prompt={prompt}
+                onPromptChange={setPrompt}
+              />
+            </>
+          ) : (
+            <ImageUpload files={uploadFiles} onFilesChange={setUploadFiles} />
+          )}
+
           <GenerateButton
             generating={generating}
-            disabled={!prompt.trim()}
+            disabled={
+              inputMode === "text"
+                ? !prompt.trim()
+                : uploadFiles.length === 0
+            }
             onClick={generate}
           />
         </div>
@@ -270,7 +435,12 @@ export default function App() {
             <p>Describe a scenario and hit generate to build a 3D world.</p>
           </div>
         )}
-        {showProgress && <ProgressSteps steps={steps} />}
+        {showProgress && (
+          <ProgressSteps
+            steps={steps}
+            stepLabels={inputMode === "upload" ? UPLOAD_STEP_LABELS : TEXT_STEP_LABELS}
+          />
+        )}
 
         {/* Stream-level error with retry */}
         {streamError && !generating && (
@@ -281,6 +451,14 @@ export default function App() {
               Retry
             </button>
           </div>
+        )}
+
+        {debugData.videoUrl && showProgress && (
+          <VideoPreview
+            videoUrl={debugData.videoUrl}
+            collapsed={videoCollapsed}
+            onToggleCollapse={() => setVideoCollapsed((c) => !c)}
+          />
         )}
 
         {debugMode && hasDebugData && (

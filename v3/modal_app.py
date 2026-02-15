@@ -27,7 +27,7 @@ from typing import Any
 from urllib.parse import quote
 
 import modal
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
@@ -42,6 +42,8 @@ RUNS_DIR = Path("/data/runs")
 HF_CACHE_DIR = Path("/cache/hf")
 
 SPLAT_VIEW_EXTS = {".splat", ".ply", ".ksplat", ".spz"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+VIDEO_EXTS = {".mp4", ".avi", ".mov", ".webm", ".gif"}
 WEB_PREVIEW_FILENAME = "gaussians_web_preview.ply"
 DEFAULT_WEB_MAX_SPLATS = 200_000
 
@@ -266,19 +268,22 @@ def _find_artifact(run_dir: Path, filename: str) -> Path | None:
         return None
 
 
-def _safe_reload(volume: modal.Volume) -> bool:
-    """Safely reload volume, handling open file conflicts."""
-    try:
-        volume.reload()
-        return True
-    except Exception as e:
-        # Common issue: files are open (being served), can't reload
-        # This is OK - we'll work with stale data
-        if "open files" in str(e).lower():
-            return False
-        # Other errors might be more serious, but don't crash
-        print(f"Volume reload warning: {e}")
-        return False
+def _safe_reload(volume: modal.Volume, retries: int = 2) -> bool:
+    """Safely reload volume, handling open file conflicts with retries."""
+    for attempt in range(retries + 1):
+        try:
+            volume.reload()
+            return True
+        except Exception as e:
+            # Common issue: files are open (being served), can't reload
+            if "open files" in str(e).lower() and attempt < retries:
+                time.sleep(0.5)
+                continue
+            if attempt == retries:
+                print(f"Volume reload failed after {retries + 1} attempts: {e}")
+                return False
+            print(f"Volume reload warning (attempt {attempt + 1}): {e}")
+    return False
 
 
 def _validate_run_id(run_id: str) -> bool:
@@ -510,30 +515,44 @@ def generate_video(prompt: str, run_id: str) -> bytes:
     volumes={"/data": artifacts_volume, "/cache": weights_volume},
 )
 def generate_world(
-    video_bytes: bytes,
-    run_id: str,
+    video_bytes: bytes | None = None,
+    run_id: str = "",
+    image_payloads: list[tuple[str, bytes]] | None = None,
     fps: int = 3,
     target_size: int = 518,
     web_max_splats: int = DEFAULT_WEB_MAX_SPLATS,
 ) -> dict[str, Any]:
-    """Convert video into 3D Gaussian Splat world."""
-    if not video_bytes or len(video_bytes) < 1000:
-        raise ValueError(f"Invalid video input: {len(video_bytes)} bytes")
+    """Convert video or images into 3D Gaussian Splat world."""
+    if video_bytes is None and image_payloads is None:
+        raise ValueError("Provide either video_bytes or image_payloads")
 
+    run_id = run_id or uuid.uuid4().hex[:12]
     run_dir = RUNS_DIR / run_id
     _safe_mkdir(run_dir)
     for subdir in ("hub", "transformers", "torch"):
         _safe_mkdir(HF_CACHE_DIR / subdir)
 
-    # Write video input
-    video_path = run_dir / "input_video.mp4"
-    try:
-        video_path.write_bytes(video_bytes)
-    except Exception as e:
-        raise RuntimeError(f"Failed to write video file: {e}")
-
-    if not video_path.exists() or video_path.stat().st_size == 0:
-        raise RuntimeError("Video file was not written successfully")
+    # Write inputs
+    if image_payloads is not None:
+        input_dir = run_dir / "inputs"
+        _safe_mkdir(input_dir)
+        for name, data in sorted(image_payloads, key=lambda x: x[0].lower()):
+            suffix = Path(name).suffix.lower()
+            if suffix not in IMAGE_EXTS:
+                raise ValueError(f"Unsupported image type: {name}")
+            (input_dir / (Path(name).stem + suffix)).write_bytes(data)
+        input_path = input_dir
+        print(f"Wrote {len(image_payloads)} images to {input_dir}")
+    else:
+        if not video_bytes or len(video_bytes) < 1000:
+            raise ValueError(f"Invalid video input: {len(video_bytes)} bytes")
+        input_path = run_dir / "input_video.mp4"
+        try:
+            input_path.write_bytes(video_bytes)
+        except Exception as e:
+            raise RuntimeError(f"Failed to write video file: {e}")
+        if not input_path.exists() or input_path.stat().st_size == 0:
+            raise RuntimeError("Video file was not written successfully")
 
     # HuggingFace login
     hf_token = os.environ.get("HUGGINGFACE_TOKEN")
@@ -550,7 +569,7 @@ def generate_world(
     try:
         output = _run([
             "python3", str(REPO_DIR / "infer.py"),
-            "--input_path", str(video_path),
+            "--input_path", str(input_path),
             "--output_path", str(run_dir),
             "--fps", str(fps),
             "--target_size", str(target_size),
@@ -679,24 +698,36 @@ def viewer() -> FastAPI:
         if not _validate_run_id(run_id):
             raise HTTPException(400, "invalid run_id format")
 
-        # Don't reload here - this is the hot path that causes open file conflicts
-        # _safe_reload(artifacts_volume)
-
-        try:
+        def _resolve_target():
+            """Resolve run dir and target file, returning (target_path, error_stage)."""
             run_dir = (RUNS_DIR / run_id).resolve()
             if not run_dir.exists():
-                raise HTTPException(404, "run not found")
-
-            # Security: prevent path traversal
+                return None, "run"
             target = (run_dir / path).resolve()
             if not str(target).startswith(str(run_dir)):
                 raise HTTPException(400, "invalid path - path traversal detected")
+            if not target.exists() or not target.is_file():
+                return None, "file"
+            return target, None
 
-            if not target.exists():
+        try:
+            # Fast path: try without reload first
+            target, miss = _resolve_target()
+
+            # Reload-on-miss with retries: volume propagation can take
+            # several seconds after commit on another container
+            if target is None:
+                for attempt in range(5):
+                    _safe_reload(artifacts_volume)
+                    target, miss = _resolve_target()
+                    if target is not None:
+                        break
+                    time.sleep(1.5)
+
+            if target is None:
+                if miss == "run":
+                    raise HTTPException(404, "run not found")
                 raise HTTPException(404, f"file not found: {path}")
-
-            if not target.is_file():
-                raise HTTPException(400, "path is not a file")
 
             # For large files, use FileResponse (streaming)
             # For small files, read into memory to avoid keeping files open
@@ -773,7 +804,9 @@ def viewer() -> FastAPI:
                 # Step 1: Expand prompt
                 yield f"data: {json.dumps({'step': 'expand_start'})}\n\n"
                 try:
-                    expanded = expand_prompt.remote(prompt, category)
+                    # Use .remote.aio() so we yield control to the event loop
+                    # and SSE events flush to the client in real-time
+                    expanded = await expand_prompt.remote.aio(prompt, category)
                     if not expanded or not expanded.strip():
                         raise ValueError("Prompt expansion returned empty result")
                     yield f"data: {json.dumps({'step': 'expand_done', 'expanded_prompt': expanded})}\n\n"
@@ -801,9 +834,18 @@ def viewer() -> FastAPI:
                 # Step 2: Generate video
                 yield f"data: {json.dumps({'step': 'video_start'})}\n\n"
                 try:
-                    video_bytes = generate_video.remote(expanded, run_id)
+                    video_bytes = await generate_video.remote.aio(expanded, run_id)
                     if not video_bytes or len(video_bytes) < 1000:
                         raise ValueError(f"Video generation produced invalid output ({len(video_bytes)} bytes)")
+                    # Reload volume and verify the video file is visible before
+                    # telling the frontend it's ready (volume propagation delay)
+                    _safe_reload(artifacts_volume)
+                    video_file = RUNS_DIR / run_id / "generated_video.mp4"
+                    for _wait in range(6):
+                        if video_file.exists():
+                            break
+                        time.sleep(1)
+                        _safe_reload(artifacts_volume)
                     yield f"data: {json.dumps({'step': 'video_done', 'run_id': run_id})}\n\n"
                 except Exception as e:
                     yield f"data: {json.dumps({'step': 'error', 'message': f'Video generation failed: {str(e)}'})}\n\n"
@@ -812,9 +854,18 @@ def viewer() -> FastAPI:
                 # Step 3: Generate 3D world
                 yield f"data: {json.dumps({'step': 'world_start'})}\n\n"
                 try:
-                    result = generate_world.remote(video_bytes, run_id)
+                    result = await generate_world.remote.aio(video_bytes, run_id)
                     if not result or "gaussians_ply" not in result:
                         raise ValueError("World generation did not produce expected output")
+                    # Reload volume and verify PLY is visible before notifying frontend
+                    _safe_reload(artifacts_volume)
+                    ply_name = result.get("gaussians_ply", "gaussians.ply")
+                    ply_file = RUNS_DIR / run_id / ply_name
+                    for _wait in range(6):
+                        if ply_file.exists():
+                            break
+                        time.sleep(1)
+                        _safe_reload(artifacts_volume)
                     yield f"data: {json.dumps({'step': 'world_done', **result})}\n\n"
                 except Exception as e:
                     yield f"data: {json.dumps({'step': 'error', 'message': f'World generation failed: {str(e)}'})}\n\n"
@@ -825,7 +876,108 @@ def viewer() -> FastAPI:
                 traceback.print_exc()
                 yield f"data: {json.dumps({'step': 'error', 'message': f'Unexpected error: {str(exc)}'})}\n\n"
 
-        return StreamingResponse(stream(), media_type="text/event-stream")
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # Disable nginx/proxy buffering
+            },
+        )
+
+    @api.post("/upload")
+    async def upload_endpoint(
+        files: list[UploadFile] = File(...),
+    ):
+        """Upload images or a video to generate a 3D world directly (skips prompt/video gen)."""
+        if not files:
+            raise HTTPException(400, "no files provided")
+
+        run_id = uuid.uuid4().hex[:12]
+
+        # Classify and read uploaded files
+        image_payloads: list[tuple[str, bytes]] = []
+        video_bytes: bytes | None = None
+
+        for f in files:
+            if not f.filename:
+                continue
+            suffix = Path(f.filename).suffix.lower()
+            content = await f.read()
+            if suffix in IMAGE_EXTS:
+                image_payloads.append((f.filename, content))
+            elif suffix in VIDEO_EXTS:
+                if video_bytes is not None:
+                    raise HTTPException(400, "only one video file allowed")
+                video_bytes = content
+            else:
+                raise HTTPException(400, f"unsupported file type: {suffix}")
+
+        if not image_payloads and video_bytes is None:
+            raise HTTPException(400, "no valid image or video files found")
+        if image_payloads and video_bytes:
+            raise HTTPException(400, "provide either images or a video, not both")
+
+        async def stream():
+            try:
+                yield f"data: {json.dumps({'step': 'upload_done', 'run_id': run_id, 'file_count': len(image_payloads) or 1})}\n\n"
+
+                # Save metadata
+                try:
+                    run_dir = RUNS_DIR / run_id
+                    _safe_mkdir(run_dir)
+                    meta = {
+                        "source": "upload",
+                        "file_count": len(image_payloads) or 1,
+                        "created_at": time.time(),
+                        "run_id": run_id,
+                    }
+                    (run_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+                    artifacts_volume.commit()
+                except Exception as e:
+                    print(f"Warning: Failed to save metadata: {e}")
+
+                # Generate 3D world
+                yield f"data: {json.dumps({'step': 'world_start'})}\n\n"
+                try:
+                    if image_payloads:
+                        result = await generate_world.remote.aio(
+                            image_payloads=image_payloads, run_id=run_id,
+                        )
+                    else:
+                        result = await generate_world.remote.aio(
+                            video_bytes=video_bytes, run_id=run_id,
+                        )
+                    if not result or "gaussians_ply" not in result:
+                        raise ValueError("World generation did not produce expected output")
+                    _safe_reload(artifacts_volume)
+                    ply_name = result.get("gaussians_ply", "gaussians.ply")
+                    ply_file = RUNS_DIR / run_id / ply_name
+                    for _wait in range(6):
+                        if ply_file.exists():
+                            break
+                        time.sleep(1)
+                        _safe_reload(artifacts_volume)
+                    yield f"data: {json.dumps({'step': 'world_done', **result})}\n\n"
+                except Exception as e:
+                    yield f"data: {json.dumps({'step': 'error', 'message': f'World generation failed: {str(e)}'})}\n\n"
+                    return
+
+            except Exception as exc:
+                import traceback
+                traceback.print_exc()
+                yield f"data: {json.dumps({'step': 'error', 'message': f'Unexpected error: {str(exc)}'})}\n\n"
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     return api
 
@@ -838,36 +990,66 @@ def viewer() -> FastAPI:
 @app.local_entrypoint()
 def main(
     prompt: str = "",
+    input_dir: str = "",
+    video_path: str = "",
     run_id: str = "",
     fps: int = 3,
     target_size: int = 518,
     viewer_url: str = "",
 ) -> None:
-    """Generate a 3D world from a text prompt.
+    """Generate a 3D world from a text prompt, images, or video.
 
-    Example: modal run v3/modal_app.py --prompt "road with fallen tree blocking traffic"
+    Examples:
+        modal run v3/modal_app.py --prompt "road with fallen tree blocking traffic"
+        modal run v3/modal_app.py --input-dir ./my-photos
+        modal run v3/modal_app.py --video-path ./scene.mp4
     """
     import sys
 
-    if not prompt.strip():
-        print("Usage: modal run v3/modal_app.py --prompt 'road with fallen tree'")
+    has_prompt = bool(prompt.strip())
+    has_images = bool(input_dir.strip())
+    has_video = bool(video_path.strip())
+
+    if sum([has_prompt, has_images, has_video]) != 1:
+        print("Provide exactly one of: --prompt, --input-dir, or --video-path")
         sys.exit(1)
 
     run_id = run_id or uuid.uuid4().hex[:12]
 
-    # Step 1: Expand prompt
-    print(f"\n[1/3] Expanding prompt with Gemini...")
-    expanded = expand_prompt.remote(prompt)
-    print(f"  Expanded: {expanded}\n")
+    if has_images:
+        src = Path(input_dir)
+        files = sorted(p for p in src.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTS)
+        if not files:
+            print(f"No images found in {input_dir}")
+            sys.exit(1)
+        image_payloads = [(p.name, p.read_bytes()) for p in files]
+        print(f"\n[1/1] Building 3D world from {len(image_payloads)} images on H100...")
+        result = generate_world.remote(
+            image_payloads=image_payloads, run_id=run_id, fps=fps, target_size=target_size,
+        )
 
-    # Step 2: Generate video
-    print(f"[2/3] Generating video with Veo 3.1...")
-    video_bytes = generate_video.remote(expanded, run_id)
-    print(f"  Video: {len(video_bytes)} bytes\n")
+    elif has_video:
+        src = Path(video_path)
+        vbytes = src.read_bytes()
+        print(f"\n[1/1] Building 3D world from video ({len(vbytes)} bytes) on H100...")
+        result = generate_world.remote(
+            video_bytes=vbytes, run_id=run_id, fps=fps, target_size=target_size,
+        )
 
-    # Step 3: Generate 3D world
-    print(f"[3/3] Building 3D world on H100...")
-    result = generate_world.remote(video_bytes, run_id, fps=fps, target_size=target_size)
+    else:
+        # Text prompt flow: expand → generate video → build world
+        print(f"\n[1/3] Expanding prompt with Gemini...")
+        expanded = expand_prompt.remote(prompt)
+        print(f"  Expanded: {expanded}\n")
+
+        print(f"[2/3] Generating video with Veo 3.1...")
+        video_bytes = generate_video.remote(expanded, run_id)
+        print(f"  Video: {len(video_bytes)} bytes\n")
+
+        print(f"[3/3] Building 3D world on H100...")
+        result = generate_world.remote(
+            video_bytes=video_bytes, run_id=run_id, fps=fps, target_size=target_size,
+        )
     print(f"\n{json.dumps(result, indent=2)}")
 
     # Print viewer URL
