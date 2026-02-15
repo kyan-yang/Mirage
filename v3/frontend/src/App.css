@@ -220,6 +220,7 @@ body {
   border-bottom: 1px solid #1a1a1a;
 }
 .tab {
+  position: relative;
   padding: 8px 16px 8px 0;
   background: transparent;
   border: none;
@@ -227,17 +228,28 @@ body {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   transition: color 0.15s;
   font-family: inherit;
+}
+.tab::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: -4px;
+  right: 12px;
+  height: 2px;
+  background: transparent;
+  transition: background 0.15s;
 }
 .tab:hover {
   color: #999;
 }
 .tab.active {
   color: #ededed;
-  border-bottom-color: var(--green);
+}
+.tab.active::after {
+  background: var(--green);
 }
 
 /* ---- Prompt input ---- */
