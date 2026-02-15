@@ -454,9 +454,13 @@ def generate_video(prompt: str, run_id: str) -> bytes:
             video_data = video_file.read()
             video_path.write_bytes(video_data)
         elif hasattr(video_file, 'uri'):
-            # If we have a URI, download from it
+            # If we have a URI, download from it with authentication
             import requests
-            response = requests.get(video_file.uri)
+            headers = {
+                'Authorization': f'Bearer {api_key}',
+                'X-Goog-Api-Key': api_key,
+            }
+            response = requests.get(video_file.uri, headers=headers)
             response.raise_for_status()
             video_path.write_bytes(response.content)
         elif hasattr(video_file, 'name'):
