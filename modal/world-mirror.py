@@ -7,10 +7,11 @@ import subprocess
 import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import modal
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from huggingface_hub import login as hf_login
 
 APP_NAME = "hunyuanworld-mirror-modal"
@@ -21,6 +22,105 @@ HF_CACHE_DIR = Path("/cache/hf")
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXTS = {".mp4", ".avi", ".mov", ".webm", ".gif"}
+SPLAT_VIEW_EXTS = {".splat", ".ply", ".ksplat"}
+
+SPLAT_VIEWER_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>__TITLE__</title>
+  <style>
+    html, body, #viewer-root {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: #101217;
+      color: #f2f4f8;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+    }
+    #viewer-root { position: fixed; inset: 0; }
+    .hud {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      max-width: min(640px, calc(100vw - 24px));
+      background: rgba(10, 12, 18, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 10px;
+      padding: 10px 12px;
+      line-height: 1.35;
+      font-size: 13px;
+      backdrop-filter: blur(4px);
+      z-index: 10;
+    }
+    .hud a { color: #9dd0ff; text-decoration: none; }
+    .hud a:hover { text-decoration: underline; }
+    .status { margin-top: 8px; color: #d7dbe5; }
+    .status.error { color: #ffb0b0; }
+    code { color: #d9e8ff; }
+  </style>
+</head>
+<body>
+  <div id="viewer-root"></div>
+  <div class="hud">
+    <div><strong>Run:</strong> <code>__RUN_ID__</code></div>
+    <div><strong>Splat:</strong> <code>__SPLAT_PATH__</code></div>
+    <div style="margin-top: 6px;">
+      Controls: left drag = orbit, right drag = pan, scroll = zoom.
+      Keys: <code>I</code> info, <code>P</code> point-cloud mode.
+    </div>
+    <div style="margin-top: 6px;">
+      <a href="__FILE_URL__" target="_blank" rel="noopener">download splat</a>
+    </div>
+    <div id="status" class="status">Loading viewer...</div>
+  </div>
+
+  <script type="module">
+    const setStatus = (msg, isError = false) => {
+      const el = document.getElementById("status");
+      el.textContent = msg;
+      el.classList.toggle("error", isError);
+    };
+
+    const root = document.getElementById("viewer-root");
+    root.style.width = window.innerWidth + "px";
+    root.style.height = window.innerHeight + "px";
+
+    const splatUrl = "__FILE_URL__";
+
+    try {
+      const GaussianSplats3D = await import("https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/+esm");
+
+      const viewer = new GaussianSplats3D.Viewer({
+        rootElement: root,
+        useBuiltInControls: true,
+        initialCameraPosition: [0, 1.2, 3.2],
+        initialCameraLookAt: [0, 0, 0],
+        gpuAcceleratedSort: true,
+        sharedMemoryForWorkers: true,
+      });
+
+      await viewer.addSplatScene(splatUrl, {
+        showLoadingUI: true,
+      });
+
+      viewer.start();
+      setStatus("Ready.");
+
+      window.addEventListener("resize", () => {
+        root.style.width = window.innerWidth + "px";
+        root.style.height = window.innerHeight + "px";
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus("Failed to load viewer: " + message, true);
+      console.error(err);
+    }
+  </script>
+</body>
+</html>
+"""
 
 app = modal.App(APP_NAME)
 artifacts_volume = modal.Volume.from_name(
@@ -173,6 +273,26 @@ def _find_artifact_path(run_dir: Path, filename: str) -> Path | None:
     return None
 
 
+def _find_viewable_splat_path(run_dir: Path) -> Path | None:
+    # Prefer ready-to-load splat formats first, then .ply.
+    for preferred in ("gaussians.splat", "gaussians.ksplat", "gaussians.ply"):
+        found = _find_artifact_path(run_dir, preferred)
+        if found:
+            return found
+
+    matches = sorted(
+        p
+        for p in run_dir.rglob("*")
+        if p.is_file() and p.suffix.lower() in SPLAT_VIEW_EXTS
+    )
+    if not matches:
+        return None
+
+    # Prioritize .splat over .ksplat over .ply when names are arbitrary.
+    ext_rank = {".splat": 0, ".ksplat": 1, ".ply": 2}
+    return sorted(matches, key=lambda p: (ext_rank.get(p.suffix.lower(), 9), str(p)))[0]
+
+
 @app.function(
     image=image,
     gpu="H100",
@@ -250,6 +370,7 @@ def generate_world(
         "run_id": run_id,
         "run_dir": str(run_dir),
         "gaussians_ply": str(gaussians_ply.relative_to(run_dir)) if gaussians_ply else None,
+        "splat_viewer": f"/runs/{run_id}/splat-viewer",
         "files": _list_files(run_dir),
     }
 
@@ -287,6 +408,47 @@ def viewer() -> FastAPI:
             raise HTTPException(status_code=404, detail="file not found")
 
         return FileResponse(target)
+
+    @api.get("/runs/{run_id}/splat-viewer")
+    def splat_viewer(run_id: str, path: str = "") -> HTMLResponse:
+        run_dir = (RUNS_DIR / run_id).resolve()
+        if not run_dir.exists():
+            raise HTTPException(status_code=404, detail="run_id not found")
+
+        chosen: Path | None = None
+        if path:
+            candidate = (run_dir / path).resolve()
+            if not str(candidate).startswith(str(run_dir)):
+                raise HTTPException(status_code=400, detail="invalid path")
+            if not candidate.exists() or not candidate.is_file():
+                raise HTTPException(status_code=404, detail="file not found")
+            if candidate.suffix.lower() not in SPLAT_VIEW_EXTS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"path must be one of {sorted(SPLAT_VIEW_EXTS)}",
+                )
+            chosen = candidate
+        else:
+            chosen = _find_viewable_splat_path(run_dir)
+
+        if chosen is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "No viewable splat artifact found (.splat/.ksplat/.ply). "
+                    "Run infer.py with --save_gs, then check run files."
+                ),
+            )
+
+        rel_path = str(chosen.relative_to(run_dir))
+        file_url = f"/runs/{run_id}/file?path={quote(rel_path, safe='')}"
+        html = (
+            SPLAT_VIEWER_HTML.replace("__TITLE__", f"Splat Viewer | {run_id}")
+            .replace("__RUN_ID__", run_id)
+            .replace("__SPLAT_PATH__", rel_path)
+            .replace("__FILE_URL__", file_url)
+        )
+        return HTMLResponse(html)
 
     return api
 

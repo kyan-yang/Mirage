@@ -194,8 +194,8 @@ def generate_grid_points(center_lat, center_lng, grid_size, spacing_meters=30):
 
 
 def fetch_scene(center_lat, center_lng, scene_dir, quality="medium", radius=30,
-                fov=80, pitch=0, target_size=720, grid_size=0, grid_spacing=30,
-                total_images=100):
+                fov=80, pitch=0, pitch_levels=None, target_size=720,
+                grid_size=0, grid_spacing=30, total_images=100):
     """
     Fetch a multi-position scene. Discovers unique panos on a grid,
     distributes views across them, outputs sequentially numbered images.
@@ -233,17 +233,20 @@ def fetch_scene(center_lat, center_lng, scene_dir, quality="medium", radius=30,
         print("No street view panos found in area!")
         return
 
-    # Distribute views across panos
-    views_per_pano = max(4, total_images // num_panos)
-    # Adjust so we don't overshoot too much
-    if views_per_pano * num_panos > total_images * 1.2:
-        views_per_pano = max(4, total_images // num_panos)
+    # Pitch levels
+    pitches = pitch_levels if pitch_levels else [pitch]
+    num_pitches = len(pitches)
 
-    print(f"\n{num_panos} unique panos found. {views_per_pano} views each ≈ {views_per_pano * num_panos} total images.\n")
+    # Distribute views across panos
+    views_per_pano = max(4, total_images // (num_panos * num_pitches))
+    total_per_pano = views_per_pano * num_pitches
+
+    print(f"\n{num_panos} unique panos found.")
+    print(f"  {views_per_pano} headings x {num_pitches} pitch levels = {total_per_pano} views/pano")
+    print(f"  ≈ {total_per_pano * num_panos} total images.\n")
 
     intrinsics = compute_intrinsics(fov, target_size)
     all_poses = []
-    all_headings = []
     all_sources = []
     img_idx = 0
 
@@ -251,37 +254,37 @@ def fetch_scene(center_lat, center_lng, scene_dir, quality="medium", radius=30,
         pano_lat = meta.get("lat", center_lat)
         pano_lng = meta.get("lng", center_lng)
 
-        # If lat/lng came back as 0 (photosphere quirk), use query coords
         if pano_lat == 0 and pano_lng == 0:
             continue
 
         print(f"  Pano {pano_id} ({pano_lat:.6f}, {pano_lng:.6f})...")
         pano_img = stitch_panorama(http, session_token, pano_id, meta, quality)
 
-        # Position in meters relative to scene center
         tx, ty = latlng_to_meters(pano_lat, pano_lng, center_lat, center_lng)
 
         step = 360.0 / views_per_pano
-        for j in range(views_per_pano):
-            heading = j * step
-            view = equirect_to_perspective(pano_img, heading, pitch_deg=pitch,
-                                           fov_deg=fov, out_size=target_size)
-            filename = f"{img_idx:03d}.jpg"
-            view.save(scene_dir / filename, "JPEG", quality=95)
+        start_idx = img_idx
+        for p in pitches:
+            for j in range(views_per_pano):
+                heading = j * step
+                view = equirect_to_perspective(pano_img, heading, pitch_deg=p,
+                                               fov_deg=fov, out_size=target_size)
+                filename = f"{img_idx:03d}.jpg"
+                view.save(scene_dir / filename, "JPEG", quality=95)
 
-            pose = compute_camera_pose(heading, pitch, tx, ty)
-            all_poses.append(pose)
-            all_headings.append(heading)
-            all_sources.append({
-                "image": filename,
-                "pano_id": pano_id,
-                "pano_lat": pano_lat,
-                "pano_lng": pano_lng,
-                "heading": heading,
-            })
-            img_idx += 1
+                pose = compute_camera_pose(heading, p, tx, ty)
+                all_poses.append(pose)
+                all_sources.append({
+                    "image": filename,
+                    "pano_id": pano_id,
+                    "pano_lat": pano_lat,
+                    "pano_lng": pano_lng,
+                    "heading": heading,
+                    "pitch": p,
+                })
+                img_idx += 1
 
-        print(f"    {views_per_pano} views extracted (idx {img_idx - views_per_pano:03d}–{img_idx - 1:03d})")
+        print(f"    {img_idx - start_idx} views extracted (idx {start_idx:03d}–{img_idx - 1:03d})")
 
     # Save camera metadata
     camera_data = {
@@ -310,6 +313,8 @@ def main():
     parser.add_argument("--radius", type=int, default=30, help="Pano search radius per point (default: 30)")
     parser.add_argument("--fov", type=float, default=80, help="FOV in degrees (default: 80)")
     parser.add_argument("--pitch", type=float, default=0)
+    parser.add_argument("--pitch-levels", type=float, nargs="+", default=None,
+                        help="Multiple pitch angles, e.g. --pitch-levels -15 15")
     parser.add_argument("--target-size", type=int, default=720, help="Output image size (default: 720)")
     parser.add_argument("--output", type=str, default="./scenes", help="Output base dir")
     parser.add_argument("--scene-name", type=str, default="", help="Scene folder name (default: auto)")
@@ -330,7 +335,8 @@ def main():
     fetch_scene(
         args.lat, args.lng, scene_dir,
         quality=args.quality, radius=args.radius,
-        fov=args.fov, pitch=args.pitch, target_size=args.target_size,
+        fov=args.fov, pitch=args.pitch, pitch_levels=args.pitch_levels,
+        target_size=args.target_size,
         grid_size=args.grid, grid_spacing=args.grid_spacing,
         total_images=args.total_images,
     )
