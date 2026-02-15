@@ -449,36 +449,20 @@ def generate_video(prompt: str, run_id: str) -> bytes:
     video_path = run_dir / "generated_video.mp4"
 
     try:
-        # Download video file from Google's servers
-        # The video object should have the file data
+        # Download video file from Google's servers using the SDK
         video_file = generated_video.video
 
-        # Try different methods to get the video data
-        if hasattr(video_file, 'read'):
+        # The video_file should have a name attribute we can use with the SDK
+        if hasattr(video_file, 'name'):
+            # Use the SDK's download method - it handles authentication correctly
+            video_data = client.files.download(name=video_file.name)
+            video_path.write_bytes(video_data)
+        elif hasattr(video_file, 'read'):
             # If the file object has a read method, use it
             video_data = video_file.read()
             video_path.write_bytes(video_data)
-        elif hasattr(video_file, 'uri'):
-            # If we have a URI, download from it with authentication
-            import requests
-            headers = {
-                'Authorization': f'Bearer {api_key}',
-                'X-Goog-Api-Key': api_key,
-            }
-            response = requests.get(video_file.uri, headers=headers)
-            response.raise_for_status()
-            video_path.write_bytes(response.content)
-        elif hasattr(video_file, 'name'):
-            # Try to get the file by name and download
-            file_obj = client.files.get(name=video_file.name)
-            if hasattr(file_obj, 'read'):
-                video_path.write_bytes(file_obj.read())
-            else:
-                # Last resort: use download method
-                video_data = client.files.download(name=video_file.name)
-                video_path.write_bytes(video_data)
         else:
-            raise RuntimeError(f"Unknown video file format: {type(video_file)}")
+            raise RuntimeError(f"Unknown video file format: {type(video_file)}, attributes: {dir(video_file)}")
     except Exception as e:
         raise RuntimeError(f"Failed to download/save video: {e}")
 
