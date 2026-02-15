@@ -239,10 +239,9 @@ export default function App() {
       <div className="pane pane-left">
         <div className="pane-left-inner">
           <div className="header">
-            <h1>Scenario Generator</h1>
+            <h1>Synthetic Training Environments</h1>
             <p>
-              Text to 3D world — generate synthetic training environments for
-              autonomous driving and robotics.
+              Generate realistic 3D worlds for autonomous vehicles and humanoid robots.
             </p>
           </div>
           <TabSelector category={category} onSelect={setCategory} />
