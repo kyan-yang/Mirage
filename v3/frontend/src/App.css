@@ -398,13 +398,6 @@ body {
 .result.active {
   display: block;
 }
-.result .viewer-frame {
-  width: 100%;
-  height: 500px;
-  border: 1px solid #1a1a1a;
-  border-radius: 8px;
-  background: #000;
-}
 .result-links {
   display: flex;
   gap: 16px;
@@ -425,6 +418,159 @@ body {
 .result-links a:hover {
   color: #ededed;
   text-decoration-color: #555;
+}
+
+/* ---- Splat viewer (3D canvas) ---- */
+
+.splat-container {
+  width: 100%;
+  height: 500px;
+  border: 1px solid #1a1a1a;
+  border-radius: 8px;
+  background: #0a0a0a;
+  overflow: hidden;
+  position: relative;
+}
+
+.splat-viewer-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.splat-viewer-canvas {
+  width: 100%;
+  height: 100%;
+  background: #111;
+}
+
+.splat-viewer-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #ededed;
+  font-size: 13px;
+}
+
+.splat-viewer-hud {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(10, 10, 10, 0.85);
+  border: 1px solid #1a1a1a;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: "Geist Mono", monospace;
+  color: #888;
+  backdrop-filter: blur(8px);
+}
+
+.splat-viewer-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+}
+
+.splat-viewer-sep {
+  color: #333;
+}
+
+.splat-viewer-controls-hint {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  font-size: 10px;
+  font-family: "Geist Mono", monospace;
+  color: #444;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(10, 10, 10, 0.7);
+  border: 1px solid #1a1a1a;
+  border-radius: 6px;
+  padding: 4px 10px;
+  backdrop-filter: blur(8px);
+}
+
+/* ---- Fetch loading / error inside splat container ---- */
+
+.splat-fetch-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #888;
+  font-size: 13px;
+}
+
+.splat-fetch-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #ee0000;
+  font-size: 13px;
+}
+
+/* ---- Stream error banner ---- */
+
+.stream-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border: 1px solid #3a1111;
+  border-radius: 8px;
+  background: rgba(238, 0, 0, 0.06);
+  color: #ee4444;
+  font-size: 13px;
+}
+
+.error-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(238, 0, 0, 0.15);
+  color: #ee4444;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.retry-btn {
+  margin-left: auto;
+  padding: 4px 14px;
+  border: 1px solid #333;
+  border-radius: 6px;
+  background: transparent;
+  color: #ededed;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.retry-btn:hover {
+  background: #1a1a1a;
+  border-color: #555;
 }
 
 /* ---- Responsive: stack on small screens ---- */

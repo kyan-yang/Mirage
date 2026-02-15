@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import TabSelector from "./components/TabSelector";
 import PromptInput from "./components/PromptInput";
 import GenerateButton from "./components/GenerateButton";
@@ -52,6 +52,10 @@ export default function App() {
   const [hasDebugData, setHasDebugData] = useState(false);
 
   const [result, setResult] = useState<ResultData | null>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
+
+  // Abort controller for cancelling in-flight generation
+  const abortRef = useRef<AbortController | null>(null);
 
   const setStepState = useCallback(
     (step: string, state: StepState, detail?: string) => {
@@ -66,9 +70,15 @@ export default function App() {
   const generate = useCallback(async () => {
     if (!prompt.trim() || generating) return;
 
+    // Cancel any previous request
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setGenerating(true);
     setShowProgress(true);
     setResult(null);
+    setStreamError(null);
     setHasDebugData(false);
     setSteps({
       expand: { state: "pending", detail: "" },
@@ -82,9 +92,20 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, category }),
+        signal: controller.signal,
       });
 
-      const reader = resp.body!.getReader();
+      if (!resp.ok) {
+        throw new Error(
+          `Server error: ${resp.status} ${resp.statusText}`
+        );
+      }
+
+      if (!resp.body) {
+        throw new Error("No response body — streaming not supported");
+      }
+
+      const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
 
@@ -100,13 +121,43 @@ export default function App() {
               const data = JSON.parse(line.slice(6));
               handleEvent(data);
             } catch {
-              // ignore malformed SSE
+              // ignore malformed SSE lines
             }
           }
         }
       }
+
+      // Flush any remaining buffer
+      if (buffer.startsWith("data: ")) {
+        try {
+          const data = JSON.parse(buffer.slice(6));
+          handleEvent(data);
+        } catch {
+          // ignore
+        }
+      }
     } catch (err) {
-      setStepState("expand", "error", (err as Error).message);
+      if ((err as Error).name === "AbortError") return;
+
+      const message = (err as Error).message || "Connection failed";
+      setStreamError(message);
+
+      // Mark whichever step is currently active as errored
+      setSteps((prev) => {
+        const next = { ...prev };
+        let foundActive = false;
+        for (const key of ["expand", "video", "world"]) {
+          if (next[key].state === "active") {
+            next[key] = { state: "error", detail: message };
+            foundActive = true;
+          }
+        }
+        // If no step was active yet, mark expand as errored
+        if (!foundActive) {
+          next["expand"] = { state: "error", detail: message };
+        }
+        return next;
+      });
     }
 
     setGenerating(false);
@@ -158,9 +209,11 @@ export default function App() {
         (data.gaussians_ply as string) || "gaussians.ply";
       setDebugData((prev) => ({ ...prev, runId, files }));
       setResult({ runId, gaussiansPly });
+      setStreamError(null);
     }
     if (step === "error") {
       const message = (data.message as string) || "Failed";
+      setStreamError(message);
       setSteps((prev) => {
         const next = { ...prev };
         for (const key of ["expand", "video", "world"]) {
@@ -173,6 +226,12 @@ export default function App() {
     }
   }
 
+  const handleRetry = useCallback(() => {
+    setStreamError(null);
+    // Re-trigger generation (will reset all state)
+    generate();
+  }, [generate]);
+
   const hasOutput = showProgress || result;
 
   return (
@@ -181,7 +240,10 @@ export default function App() {
         <div className="pane-left-inner">
           <div className="header">
             <h1>Scenario Generator</h1>
-            <p>Text to 3D world — generate synthetic training environments for autonomous driving and robotics.</p>
+            <p>
+              Text to 3D world — generate synthetic training environments for
+              autonomous driving and robotics.
+            </p>
           </div>
           <TabSelector category={category} onSelect={setCategory} />
           <PromptInput
@@ -210,12 +272,22 @@ export default function App() {
           </div>
         )}
         {showProgress && <ProgressSteps steps={steps} />}
+
+        {/* Stream-level error with retry */}
+        {streamError && !generating && (
+          <div className="stream-error">
+            <span className="error-icon">!</span>
+            <span>{streamError}</span>
+            <button className="retry-btn" onClick={handleRetry}>
+              Retry
+            </button>
+          </div>
+        )}
+
         {debugMode && hasDebugData && (
           <DebugPanel debugData={debugData} apiUrl={API_URL} />
         )}
-        {result && (
-          <ResultViewer result={result} apiUrl={API_URL} />
-        )}
+        {result && <ResultViewer result={result} apiUrl={API_URL} />}
       </div>
     </div>
   );

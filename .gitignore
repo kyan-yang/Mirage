@@ -1,4 +1,6 @@
 __pycache__/
 *.pyc
 .env
+.env.*
+**/.env.*
 google-maps-data/output*/
