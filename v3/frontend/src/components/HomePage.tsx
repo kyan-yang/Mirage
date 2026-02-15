@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Gallery from "./Gallery";
+import GalleryModal from "./GalleryModal";
 import TabSelector from "./TabSelector";
 import PromptInput from "./PromptInput";
 import GenerateButton from "./GenerateButton";
@@ -11,12 +12,19 @@ interface HomePageProps {
 
 type PageView = "create" | "gallery";
 
+const SIDEBAR_EXAMPLES = [
+  { name: "Auditorium", previewImage: "/previews/Auditorium.png", plyPath: "/models/Auditorium.ply" },
+  { name: "Chips", previewImage: "/previews/Chips.png", plyPath: "/models/Chips.ply" },
+  { name: "Timer", previewImage: "/previews/Timer.png", plyPath: "/models/Timer.ply" },
+];
+
 export default function HomePage({ onGenerate }: HomePageProps) {
   const [view, setView] = useState<PageView>("create");
   const [category, setCategory] = useState<Category>("autonomous");
   const [prompt, setPrompt] = useState("");
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [debugMode, setDebugMode] = useState(false);
+  const [selectedExample, setSelectedExample] = useState<typeof SIDEBAR_EXAMPLES[number] | null>(null);
 
   const handleGenerate = () => {
     onGenerate(prompt, category, uploadFiles);
@@ -45,7 +53,7 @@ export default function HomePage({ onGenerate }: HomePageProps) {
         <div className="create-view">
           <div className="create-content">
             <div className="create-header">
-              <h1>Synthetic Training Environments</h1>
+              <h1>syn_splatt</h1>
               <p>Generate realistic training environments for autonomous vehicles and humanoid robots.</p>
             </div>
 
@@ -77,15 +85,18 @@ export default function HomePage({ onGenerate }: HomePageProps) {
           <div className="create-examples">
             <div className="create-examples-header">Example Outputs</div>
             <div className="create-examples-grid">
-              <div className="create-example-item">
-                <img src="/previews/Auditorium.png" alt="Auditorium" />
-              </div>
-              <div className="create-example-item">
-                <img src="/previews/Chips.png" alt="Chips" />
-              </div>
-              <div className="create-example-item">
-                <img src="/previews/Timer.png" alt="Timer" />
-              </div>
+              {SIDEBAR_EXAMPLES.map((item) => (
+                <div
+                  key={item.name}
+                  className="create-example-item clickable"
+                  onClick={() => setSelectedExample(item)}
+                >
+                  <img src={item.previewImage} alt={item.name} />
+                  <div className="create-example-overlay">
+                    <span className="create-example-name">{item.name}</span>
+                  </div>
+                </div>
+              ))}
             </div>
             <button className="create-view-all" onClick={() => setView("gallery")}>
               View all examples →
@@ -96,6 +107,14 @@ export default function HomePage({ onGenerate }: HomePageProps) {
 
       {/* Gallery View */}
       {view === "gallery" && <Gallery />}
+
+      {/* Modal for sidebar example clicks */}
+      {selectedExample && (
+        <GalleryModal
+          item={selectedExample}
+          onClose={() => setSelectedExample(null)}
+        />
+      )}
     </div>
   );
 }

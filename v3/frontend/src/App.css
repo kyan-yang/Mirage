@@ -1,4 +1,13 @@
 @font-face {
+  font-family: "Bitcount Grid Double";
+  src: url("https://cdn.jsdelivr.net/fontsource/fonts/bitcount-grid-double:vf@latest/latin-wght-normal.woff2")
+    format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
   font-family: "Geist Sans";
   src: url("https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-sans/Geist-Regular.woff2")
     format("woff2");
@@ -114,9 +123,11 @@ body {
   gap: 12px;
 }
 .header h1 {
-  font-size: 24px;
-  font-weight: 600;
+  font-family: "Bitcount Grid Double", monospace;
+  font-size: 28px;
+  font-weight: 300;
   color: #ededed;
+  letter-spacing: 1px;
   letter-spacing: -0.02em;
 }
 .header p {
@@ -929,11 +940,11 @@ body {
   border: none;
   border-bottom: 2px solid transparent;
   color: #555;
-  font-size: 14px;
-  font-weight: 500;
+  font-family: "Bitcount Grid Double", monospace;
+  font-weight: 300;
+  font-size: 16px;
   cursor: pointer;
   transition: all 0.2s;
-  font-family: inherit;
   margin-bottom: -1px;
 }
 
@@ -968,9 +979,11 @@ body {
 }
 
 .create-header h1 {
-  font-size: 32px;
-  font-weight: 600;
+  font-family: "Bitcount Grid Double", monospace;
+  font-size: 36px;
+  font-weight: 300;
   color: #ededed;
+  letter-spacing: 1px;
   margin-bottom: 12px;
   letter-spacing: -0.02em;
 }
@@ -1036,11 +1049,21 @@ body {
 }
 
 .create-example-item {
+  position: relative;
   border: 1px solid #1a1a1a;
   border-radius: 8px;
   overflow: hidden;
   background: #0a0a0a;
   aspect-ratio: 16 / 9;
+  transition: border-color 0.3s;
+}
+
+.create-example-item.clickable {
+  cursor: pointer;
+}
+
+.create-example-item.clickable:hover {
+  border-color: #333;
 }
 
 .create-example-item img {
@@ -1048,6 +1071,27 @@ body {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.create-example-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(transparent 40%, rgba(0, 0, 0, 0.8));
+  display: flex;
+  align-items: flex-end;
+  padding: 10px;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.create-example-item.clickable:hover .create-example-overlay {
+  opacity: 1;
+}
+
+.create-example-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: #ededed;
 }
 
 .create-view-all {
@@ -1084,8 +1128,9 @@ body {
 }
 
 .gallery-header h2 {
+  font-family: "Bitcount Grid Double", monospace;
   font-size: 28px;
-  font-weight: 600;
+  font-weight: 300;
   color: #ededed;
   margin-bottom: 8px;
   letter-spacing: -0.02em;

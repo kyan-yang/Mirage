@@ -11,24 +11,24 @@ interface PromptInputProps {
 
 const EXAMPLES: Record<Category, { label: string; prompt: string }[]> = {
   autonomous: [
-    { label: "Snowy road with ice patches", prompt: "snowy road with ice patches" },
-    { label: "Fallen tree blocking traffic", prompt: "road with fallen tree blocking traffic" },
-    { label: "Flooded street with abandoned cars", prompt: "flooded suburban street with abandoned cars" },
+    { label: "Auditorium lecture hall", prompt: "large auditorium with rows of seats and a stage" },
+    { label: "Snack counter with chips", prompt: "convenience store snack aisle with chip bags" },
+    { label: "Countdown timer display", prompt: "digital countdown timer on a display screen" },
+    { label: "Tree-lined road", prompt: "road lined with large trees and foliage" },
+    { label: "TreeHacks venue", prompt: "hackathon venue with tables, laptops, and participants" },
+    { label: "Foggy mountain road", prompt: "foggy mountain road with reduced visibility" },
     { label: "Highway construction zone", prompt: "construction zone on highway with cones and barriers" },
     { label: "Rainy city intersection at night", prompt: "city intersection at night with heavy rain" },
-    { label: "Foggy mountain road", prompt: "foggy mountain road with reduced visibility" },
-    { label: "Overturned truck on highway", prompt: "highway with overturned truck and debris" },
-    { label: "Narrow bridge with oncoming traffic", prompt: "narrow bridge with oncoming traffic" },
   ],
   humanoid: [
-    { label: "Dirty dishes piled in sink", prompt: "pile of dirty dishes in kitchen sink" },
-    { label: "Laundry basket on the bed", prompt: "laundry basket full of clothes on bed" },
-    { label: "Toys scattered across floor", prompt: "cluttered living room with toys scattered on floor" },
-    { label: "Spilled groceries on counter", prompt: "kitchen counter with spilled groceries and bags" },
-    { label: "Unmade bed with tangled sheets", prompt: "unmade bed with tangled sheets and pillows" },
+    { label: "Auditorium cleanup", prompt: "auditorium after an event with scattered items on seats" },
+    { label: "Chips spilled on counter", prompt: "kitchen counter with spilled chip bags and snacks" },
+    { label: "Timer on messy desk", prompt: "desk with a timer, papers, and scattered supplies" },
+    { label: "Fallen tree debris", prompt: "yard with fallen tree branches and leaves to clear" },
+    { label: "Hackathon aftermath", prompt: "hackathon table with empty cups, wrappers, and cables" },
     { label: "Dining table after a meal", prompt: "dining table with plates, cups, and food scraps" },
-    { label: "Wet towels on bathroom floor", prompt: "bathroom with wet towels on floor" },
-    { label: "Cluttered desk with tangled cables", prompt: "workspace desk with papers and cables tangled" },
+    { label: "Cluttered desk with cables", prompt: "workspace desk with papers and cables tangled" },
+    { label: "Toys scattered across floor", prompt: "cluttered living room with toys scattered on floor" },
   ],
 };
 
