@@ -25,6 +25,22 @@ python3 -m modal setup
 modal secret create huggingface-token HUGGINGFACE_TOKEN=hf_xxx
 ```
 
+## Environment variables (.env)
+
+`.env` files are **not committed** (they are in `.gitignore`). You need to create them locally where required.
+
+**v3 frontend** (`v3/frontend/`):
+
+- Create `v3/frontend/.env.development` and/or `v3/frontend/.env.production` with:
+
+  ```bash
+  VITE_API_URL=https://your-modal-app--viewer.modal.run
+  ```
+
+  Replace the URL with your deployed Modal viewer endpoint. The frontend uses this to talk to the backend API.
+
+**Other env usage:** Backend/Modal code reads API keys from the environment (e.g. `GEMINI_API_KEY`, `HUGGINGFACE_TOKEN`). Use Modal secrets or your shell env; no `.env` in the repo.
+
 ## Run a generation job
 
 Text-to-world:
