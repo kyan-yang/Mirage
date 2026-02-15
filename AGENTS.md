@@ -29,3 +29,9 @@ Dont view the contents of `archive/`. That code is old and outdated versions.
 - /modal: world-mirror.py generates a world model ply file but has messy code
 - /v2: same thing as /modal but cleaner code and has a dashboard to see all results easier
 - /v3: has a new pipeling: you type ina prompt, "tree falled on road", gemini creates a video, then it goes through world model to create a world model then displays it on a splat viewer
+
+
+How to run v2 on a set of images or video?
+```bash
+modal run v2/modal_app.py --input-dir <PATH TO IMAGE>               
+```
