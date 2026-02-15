@@ -1,15 +1,21 @@
 """
-Street View Data Fetcher (optimized for HunyuanWorld-Mirror)
+Street View Data Fetcher (optimized for HunyuanWorld-Mirror / Gaussian Splatting)
 
 Downloads equirectangular panoramas from Google Map Tiles API, then
 reprojects into clean perspective views with proper spherical math.
 
-Output: zero-padded sequential images (000.jpg, 001.jpg, ...) in a flat
-folder, ready for infer.py --input_path.
+Supports multi-location capture: samples a grid of street view positions,
+extracts views from each, and outputs everything into one flat folder
+with sequential naming (000.jpg, 001.jpg, ...) and a camera_meta.json
+containing intrinsics + per-image camera-to-world poses with real
+translation offsets between capture positions.
 
 Usage:
-    python3 fetch_streetview.py --lat 37.4276085 --lng -122.1669747
-    python3 fetch_streetview.py --lat 37.4276085 --lng -122.1669747 --num-views 8 --fov 80
+    # Single point, 20 views
+    python3 fetch_streetview.py --lat 37.4260 --lng -122.1672
+
+    # Area coverage: 7x7 grid, 30m spacing, ~100 total images
+    python3 fetch_streetview.py --lat 37.4301 --lng -122.1694 --grid 7 --grid-spacing 30 --total-images 100
 
 Requires:
     - GOOGLE_MAPS_API_KEY env var
@@ -33,6 +39,9 @@ from requests.adapters import HTTPAdapter
 API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 TILES_BASE = "https://tile.googleapis.com"
 ZOOM_LEVELS = {"low": 3, "medium": 4, "high": 5}
+
+# Approx meters per degree at mid-latitudes
+METERS_PER_DEG_LAT = 111320.0
 
 
 def create_http_client():
@@ -83,7 +92,7 @@ def stitch_panorama(http, session_token, pano_id, metadata, quality="medium"):
     cols, rows = math.ceil(sw / tile_w), math.ceil(sh / tile_h)
 
     canvas = Image.new("RGB", (cols * tile_w, rows * tile_h))
-    print(f"  Downloading {cols * rows} tiles at zoom {zoom}...")
+    print(f"    Downloading {cols * rows} tiles...")
 
     tiles = {}
     with ThreadPoolExecutor(max_workers=8) as pool:
@@ -101,9 +110,6 @@ def stitch_panorama(http, session_token, pano_id, metadata, quality="medium"):
 
 def equirect_to_perspective(pano: Image.Image, heading_deg: float, pitch_deg: float = 0,
                             fov_deg: float = 80, out_size: int = 720) -> Image.Image:
-    """
-    Proper spherical reprojection from equirectangular to perspective (rectilinear).
-    """
     pano_arr = np.array(pano)
     h_pano, w_pano = pano_arr.shape[:2]
 
@@ -117,27 +123,22 @@ def equirect_to_perspective(pano: Image.Image, heading_deg: float, pitch_deg: fl
     v = np.arange(out_size, dtype=np.float64) - out_size / 2
     u, v = np.meshgrid(u, v)
 
-    # Ray directions in camera space
     x, y, z = u, v, np.full_like(u, f)
     norm = np.sqrt(x**2 + y**2 + z**2)
     x, y, z = x / norm, y / norm, z / norm
 
-    # Rotate by pitch (around x-axis)
     cp, sp = math.cos(pitch), math.sin(pitch)
     y, z = cp * y + sp * z, -sp * y + cp * z
 
-    # Rotate by heading (around y-axis)
-    ch, sh = math.cos(heading), math.sin(heading)
-    x, z = ch * x + sh * z, -sh * x + ch * z
+    ch, sh_ = math.cos(heading), math.sin(heading)
+    x, z = ch * x + sh_ * z, -sh_ * x + ch * z
 
-    # Spherical coordinates -> equirectangular pixel coords
     lon = np.arctan2(x, z)
     lat = np.arcsin(np.clip(y, -1, 1))
 
     px = np.clip((lon / (2 * math.pi) + 0.5) * w_pano, 0, w_pano - 1)
     py = np.clip((lat / math.pi + 0.5) * h_pano, 0, h_pano - 1)
 
-    # Bilinear interpolation
     x0, y0 = np.floor(px).astype(int), np.floor(py).astype(int)
     x1, y1 = np.minimum(x0 + 1, w_pano - 1), np.minimum(y0 + 1, h_pano - 1)
     dx, dy = (px - x0)[:, :, None], (py - y0)[:, :, None]
@@ -149,99 +150,41 @@ def equirect_to_perspective(pano: Image.Image, heading_deg: float, pitch_deg: fl
 
 
 def compute_intrinsics(fov_deg: float, image_size: int) -> list:
-    """Compute [3,3] camera intrinsics matrix from FOV and image size."""
     f = image_size / (2 * math.tan(math.radians(fov_deg) / 2))
     cx = cy = image_size / 2.0
     return [[f, 0, cx], [0, f, cy], [0, 0, 1]]
 
 
-def compute_camera_pose(heading_deg: float, pitch_deg: float = 0) -> list:
+def latlng_to_meters(lat, lng, ref_lat, ref_lng):
+    """Convert lat/lng offset to meters relative to a reference point."""
+    dx = (lng - ref_lng) * METERS_PER_DEG_LAT * math.cos(math.radians(ref_lat))
+    dy = (lat - ref_lat) * METERS_PER_DEG_LAT
+    return dx, dy
+
+
+def compute_camera_pose(heading_deg: float, pitch_deg: float, tx: float, ty: float, tz: float = 1.6) -> list:
     """
-    Build a [4,4] camera-to-world matrix (OpenCV convention) from heading/pitch.
-    For a single-point capture, translation is zero — all views share the same origin.
+    Build [4,4] camera-to-world matrix (OpenCV convention).
+    tx/ty = ground position in meters, tz = camera height (1.6m for street view car).
     """
     h = math.radians(heading_deg)
     p = math.radians(pitch_deg)
 
-    # Rotation: heading around Y, then pitch around X
-    ch, sh = math.cos(h), math.sin(h)
+    ch, sh_ = math.cos(h), math.sin(h)
     cp, sp = math.cos(p), math.sin(p)
 
-    R = [
-        [ch,      sh * sp,   sh * cp,  0],
-        [0,       cp,        -sp,      0],
-        [-sh,     ch * sp,   ch * cp,  0],
-        [0,       0,         0,        1],
+    return [
+        [ch,    sh_ * sp,   sh_ * cp,  tx],
+        [0,     cp,         -sp,       tz],
+        [-sh_,  ch * sp,    ch * cp,   ty],
+        [0,     0,          0,         1],
     ]
-    return R
 
 
-def fetch_for_location(lat, lng, output_dir, quality="medium", radius=50,
-                       fov=80, pitch=0, num_views=8, target_size=720):
-    http = create_http_client()
-    print(f"\nFetching Street View for ({lat}, {lng})...")
-
-    session_token = create_tiles_session(http)
-    metadata = get_pano_metadata(http, session_token, lat, lng, radius)
-
-    if "panoId" not in metadata:
-        print(f"  No Street View imagery found within {radius}m.")
-        return None
-
-    pano_id = metadata["panoId"]
-    print(f"  Pano ID: {pano_id}")
-    print(f"  Date: {metadata.get('date', 'unknown')}")
-    print(f"  Size: {metadata.get('imageWidth', '?')}x{metadata.get('imageHeight', '?')}")
-
-    # Output folder — flat, ready for infer.py --input_path
-    scene_dir = output_dir / f"{lat}_{lng}"
-    scene_dir.mkdir(parents=True, exist_ok=True)
-
-    # Download and stitch full panorama
-    pano_img = stitch_panorama(http, session_token, pano_id, metadata, quality)
-    pano_img.save(scene_dir / "panorama_full.jpg", "JPEG", quality=95)
-    print(f"  Full panorama: {pano_img.size[0]}x{pano_img.size[1]}")
-
-    # Extract perspective views
-    step = 360.0 / num_views
-    headings = [i * step for i in range(num_views)]
-    intrinsics = compute_intrinsics(fov, target_size)
-    poses = []
-
-    print(f"  Extracting {num_views} views (every {step:.0f}°, FOV {fov}°, {target_size}x{target_size})...")
-    for i, heading in enumerate(headings):
-        view = equirect_to_perspective(pano_img, heading, pitch_deg=pitch,
-                                       fov_deg=fov, out_size=target_size)
-        filename = f"{i:03d}.jpg"
-        view.save(scene_dir / filename, "JPEG", quality=95)
-        poses.append(compute_camera_pose(heading, pitch))
-        print(f"  {filename} — heading {heading:.0f}°")
-
-    # Save camera metadata for HunyuanWorld-Mirror priors
-    camera_data = {
-        "pano_id": pano_id,
-        "lat": lat,
-        "lng": lng,
-        "date": metadata.get("date", ""),
-        "fov_deg": fov,
-        "pitch_deg": pitch,
-        "num_views": num_views,
-        "image_size": target_size,
-        "intrinsics": intrinsics,
-        "poses": poses,
-        "headings": headings,
-    }
-    with open(scene_dir / "camera_meta.json", "w") as f:
-        json.dump(camera_data, f, indent=2)
-
-    print(f"  Camera intrinsics + poses saved to camera_meta.json")
-    return pano_id
-
-
-def generate_grid_points(center_lat, center_lng, grid_size, spacing_meters=50):
+def generate_grid_points(center_lat, center_lng, grid_size, spacing_meters=30):
     points = []
-    lat_per_m = 1 / 111320.0
-    lng_per_m = 1 / (111320.0 * math.cos(math.radians(center_lat)))
+    lat_per_m = 1 / METERS_PER_DEG_LAT
+    lng_per_m = 1 / (METERS_PER_DEG_LAT * math.cos(math.radians(center_lat)))
     half = grid_size // 2
     for dy in range(-half, half + 1):
         for dx in range(-half, half + 1):
@@ -250,19 +193,129 @@ def generate_grid_points(center_lat, center_lng, grid_size, spacing_meters=50):
     return points
 
 
+def fetch_scene(center_lat, center_lng, scene_dir, quality="medium", radius=30,
+                fov=80, pitch=0, target_size=720, grid_size=0, grid_spacing=30,
+                total_images=100):
+    """
+    Fetch a multi-position scene. Discovers unique panos on a grid,
+    distributes views across them, outputs sequentially numbered images.
+    """
+    http = create_http_client()
+    session_token = create_tiles_session(http)
+    scene_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate sample points
+    if grid_size > 0:
+        points = generate_grid_points(center_lat, center_lng, grid_size, grid_spacing)
+    else:
+        points = [(center_lat, center_lng)]
+
+    # Discover unique panos
+    print(f"Probing {len(points)} grid points for unique panos...")
+    pano_map = {}  # pano_id -> metadata + location
+    for lat, lng in points:
+        try:
+            meta = get_pano_metadata(http, session_token, lat, lng, radius)
+        except Exception:
+            continue
+        if "panoId" not in meta:
+            continue
+        pid = meta["panoId"]
+        # Skip photospheres (small image size = user-uploaded)
+        if meta.get("imageWidth", 0) < 10000:
+            continue
+        if pid not in pano_map:
+            pano_map[pid] = meta
+            print(f"  Found pano {pid} at ({meta.get('lat', lat):.6f}, {meta.get('lng', lng):.6f}) — {meta.get('date', '?')}")
+
+    num_panos = len(pano_map)
+    if num_panos == 0:
+        print("No street view panos found in area!")
+        return
+
+    # Distribute views across panos
+    views_per_pano = max(4, total_images // num_panos)
+    # Adjust so we don't overshoot too much
+    if views_per_pano * num_panos > total_images * 1.2:
+        views_per_pano = max(4, total_images // num_panos)
+
+    print(f"\n{num_panos} unique panos found. {views_per_pano} views each ≈ {views_per_pano * num_panos} total images.\n")
+
+    intrinsics = compute_intrinsics(fov, target_size)
+    all_poses = []
+    all_headings = []
+    all_sources = []
+    img_idx = 0
+
+    for pano_id, meta in pano_map.items():
+        pano_lat = meta.get("lat", center_lat)
+        pano_lng = meta.get("lng", center_lng)
+
+        # If lat/lng came back as 0 (photosphere quirk), use query coords
+        if pano_lat == 0 and pano_lng == 0:
+            continue
+
+        print(f"  Pano {pano_id} ({pano_lat:.6f}, {pano_lng:.6f})...")
+        pano_img = stitch_panorama(http, session_token, pano_id, meta, quality)
+
+        # Position in meters relative to scene center
+        tx, ty = latlng_to_meters(pano_lat, pano_lng, center_lat, center_lng)
+
+        step = 360.0 / views_per_pano
+        for j in range(views_per_pano):
+            heading = j * step
+            view = equirect_to_perspective(pano_img, heading, pitch_deg=pitch,
+                                           fov_deg=fov, out_size=target_size)
+            filename = f"{img_idx:03d}.jpg"
+            view.save(scene_dir / filename, "JPEG", quality=95)
+
+            pose = compute_camera_pose(heading, pitch, tx, ty)
+            all_poses.append(pose)
+            all_headings.append(heading)
+            all_sources.append({
+                "image": filename,
+                "pano_id": pano_id,
+                "pano_lat": pano_lat,
+                "pano_lng": pano_lng,
+                "heading": heading,
+            })
+            img_idx += 1
+
+        print(f"    {views_per_pano} views extracted (idx {img_idx - views_per_pano:03d}–{img_idx - 1:03d})")
+
+    # Save camera metadata
+    camera_data = {
+        "scene_center": {"lat": center_lat, "lng": center_lng},
+        "num_images": img_idx,
+        "num_panos": num_panos,
+        "fov_deg": fov,
+        "pitch_deg": pitch,
+        "image_size": target_size,
+        "intrinsics": intrinsics,
+        "poses": all_poses,
+        "sources": all_sources,
+    }
+    with open(scene_dir / "camera_meta.json", "w") as f:
+        json.dump(camera_data, f, indent=2)
+
+    print(f"\nDone! {img_idx} images from {num_panos} panos saved to {scene_dir}/")
+    print(f"Ready for: infer.py --input_path {scene_dir}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Download Street View data for 3D reconstruction")
     parser.add_argument("--lat", type=float, required=True)
     parser.add_argument("--lng", type=float, required=True)
     parser.add_argument("--quality", choices=["low", "medium", "high"], default="medium")
-    parser.add_argument("--radius", type=int, default=50)
+    parser.add_argument("--radius", type=int, default=30, help="Pano search radius per point (default: 30)")
     parser.add_argument("--fov", type=float, default=80, help="FOV in degrees (default: 80)")
     parser.add_argument("--pitch", type=float, default=0)
-    parser.add_argument("--num-views", type=int, default=20, help="Number of views around 360 (default: 20)")
     parser.add_argument("--target-size", type=int, default=720, help="Output image size (default: 720)")
-    parser.add_argument("--output", type=str, default="./scenes")
-    parser.add_argument("--grid", type=int, default=0)
-    parser.add_argument("--grid-spacing", type=float, default=50)
+    parser.add_argument("--output", type=str, default="./scenes", help="Output base dir")
+    parser.add_argument("--scene-name", type=str, default="", help="Scene folder name (default: auto)")
+    parser.add_argument("--grid", type=int, default=0, help="NxN grid of sample points (default: single point)")
+    parser.add_argument("--grid-spacing", type=float, default=30, help="Grid spacing in meters (default: 30)")
+    parser.add_argument("--total-images", type=int, default=100, help="Target total images (default: 100)")
 
     args = parser.parse_args()
 
@@ -271,21 +324,16 @@ def main():
         sys.exit(1)
 
     output_dir = Path(args.output)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    scene_name = args.scene_name or f"{args.lat}_{args.lng}"
+    scene_dir = output_dir / scene_name
 
-    points = (generate_grid_points(args.lat, args.lng, args.grid, args.grid_spacing)
-              if args.grid > 0 else [(args.lat, args.lng)])
-
-    seen = set()
-    for i, (lat, lng) in enumerate(points):
-        print(f"\n--- Point {i+1}/{len(points)} ---")
-        pid = fetch_for_location(lat, lng, output_dir, quality=args.quality, radius=args.radius,
-                                 fov=args.fov, pitch=args.pitch, num_views=args.num_views,
-                                 target_size=args.target_size)
-        if pid and pid not in seen:
-            seen.add(pid)
-
-    print(f"\nDone! {len(seen)} unique panoramas to {output_dir}/")
+    fetch_scene(
+        args.lat, args.lng, scene_dir,
+        quality=args.quality, radius=args.radius,
+        fov=args.fov, pitch=args.pitch, target_size=args.target_size,
+        grid_size=args.grid, grid_spacing=args.grid_spacing,
+        total_images=args.total_images,
+    )
 
 
 if __name__ == "__main__":
