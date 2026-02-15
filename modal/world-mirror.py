@@ -173,6 +173,7 @@ image = (
         "python3 -c \"import onnxruntime; print('onnxruntime-ok')\"",
         "python3 -m pip install --no-cache-dir plyfile",
         "python3 -m pip install --no-cache-dir huggingface_hub[cli] fastapi uvicorn python-multipart",
+        "python3 -m pip install --no-cache-dir nerfview viser splines",
     )
 )
 
@@ -461,6 +462,7 @@ def _resolve_refine_data_dir(run_dir: Path, data_dir_hint: str = "") -> Path:
 
     raise FileNotFoundError(
         "Could not find a refine-ready data dir with gaussians.ply + images/ + sparse/. "
+        "Hint: re-run generation with --save-colmap to produce the required COLMAP data. "
         f"Run files: {_list_files(run_dir)}"
     )
 
@@ -566,12 +568,14 @@ def _resolve_model_dir(path: str | Path) -> Path:
 
 class _CompatCamera:
     def __init__(self, cam):
+        self._cam = cam
         self.id = int(getattr(cam, "camera_id", getattr(cam, "id", -1)))
         self.width = int(cam.width)
         self.height = int(cam.height)
         self.params = np.array(getattr(cam, "params", []), dtype=np.float64)
         model = getattr(cam, "model", None)
         self.model = getattr(model, "name", str(model))
+        self.camera_type = self.model
         if len(self.params) >= 4:
             self.fx = float(self.params[0])
             self.fy = float(self.params[1])
@@ -583,22 +587,37 @@ class _CompatCamera:
             self.cx = float(self.params[1])
             self.cy = float(self.params[2])
 
+    def __getattr__(self, name):
+        return getattr(self._cam, name)
+
 
 class _CompatImage:
     def __init__(self, img):
+        self._img = img
         self.id = int(getattr(img, "image_id", getattr(img, "id", -1)))
         self.name = str(img.name)
         self.camera_id = int(img.camera_id)
-        cam_from_world = img.cam_from_world()
+        cfw = img.cam_from_world
+        cam_from_world = cfw() if callable(cfw) else cfw
         self._R = np.array(cam_from_world.rotation.matrix(), dtype=np.float64)
         self.tvec = np.array(cam_from_world.translation, dtype=np.float64).reshape(3)
 
     def qvec2rotmat(self):
         return self._R
 
+    def R(self):
+        return self._R
+
+    def T(self):
+        return self.tvec
+
+    def __getattr__(self, name):
+        return getattr(self._img, name)
+
 
 class _CompatPoint3D:
     def __init__(self, pt):
+        self._pt = pt
         self.id = int(getattr(pt, "point3D_id", getattr(pt, "id", -1)))
         self.xyz = np.array(pt.xyz, dtype=np.float64)
         color = getattr(pt, "color", getattr(pt, "rgb", [255, 255, 255]))
@@ -610,6 +629,9 @@ class _CompatPoint3D:
             elements = getattr(track, "elements", [])
             image_ids = [int(getattr(e, "image_id", -1)) for e in elements]
         self.image_ids = np.array(image_ids, dtype=np.int32)
+
+    def __getattr__(self, name):
+        return getattr(self._pt, name)
 
 
 class SceneManager:
@@ -636,7 +658,17 @@ class SceneManager:
 
     def load_points3D(self):
         rec = self._rec()
-        self.points3D = {int(k): _CompatPoint3D(v) for k, v in rec.points3D.items()}
+        pts_dict = {int(k): _CompatPoint3D(v) for k, v in rec.points3D.items()}
+        self.points3D_dict = pts_dict
+        if pts_dict:
+            pts_list = list(pts_dict.values())
+            self.points3D = np.array([p.xyz for p in pts_list], dtype=np.float64)
+            self.point3D_errors = np.array([p.error for p in pts_list], dtype=np.float64)
+            self.point3D_colors = np.array([p.rgb for p in pts_list], dtype=np.uint8)
+        else:
+            self.points3D = np.empty((0, 3), dtype=np.float64)
+            self.point3D_errors = np.empty((0,), dtype=np.float64)
+            self.point3D_colors = np.empty((0, 3), dtype=np.uint8)
 
 
 __all__ = ["SceneManager"]
@@ -784,6 +816,8 @@ def _best_effort_install_refine_packages(env: dict[str, str]) -> list[str]:
 
     # Proactively install common missing bits for worldmirror trainer.
     proactive_installs = [
+        "nerfview",
+        "splines",
         "pycolmap2",
         "pycolmap==0.6.1",
         "pycolmap",
@@ -873,7 +907,7 @@ def generate_world(
     target_size: int = 518,
     confidence_percentile: float = 0.0,
     save_gs: bool = True,
-    save_colmap: bool = False,
+    save_colmap: bool = True,
     web_max_splats: int = DEFAULT_WEB_MAX_SPLATS,
 ) -> dict[str, Any]:
     if image_payloads is None and video_bytes is None:
@@ -1126,9 +1160,10 @@ def main(
     confidence_percentile: float = 0.0,
     conf_threshold: float = 0.0,
     save_gs: bool = True,
-    save_colmap: bool = False,
+    save_colmap: bool = True,
     web_max_splats: int = DEFAULT_WEB_MAX_SPLATS,
     viewer_url: str = "",
+    refine: bool = False,
 ) -> None:
     if not input_dir and not video_path:
         raise ValueError("Provide --input-dir (multi-image) or --video-path")
@@ -1175,6 +1210,19 @@ def main(
     viewer_base_url = _resolve_viewer_base_url(viewer_url)
     _print_result_links(result, viewer_base_url=viewer_base_url)
     print("Deploy viewer with: modal deploy modal/world-mirror.py")
+
+    if refine:
+        gen_run_id = result.get("run_id")
+        if not gen_run_id:
+            print("WARNING: generate_world did not return a run_id; cannot auto-refine.")
+        else:
+            print(f"\n--- Auto-refining run {gen_run_id} ---")
+            refine_result = refine_world.remote(
+                run_id=gen_run_id,
+                web_max_splats=web_max_splats,
+            )
+            print(json.dumps(refine_result, indent=2))
+            _print_result_links(refine_result, viewer_base_url=viewer_base_url)
 
 
 @app.local_entrypoint()

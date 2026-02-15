@@ -213,6 +213,138 @@ def _generate_grid_points(center_lat, center_lng, grid_size, spacing_meters=30):
     return points
 
 
+def _bearing_between(lat1, lng1, lat2, lng2):
+    """Compute bearing (heading) in degrees from point 1 to point 2."""
+    lat1, lng1, lat2, lng2 = map(math.radians, [lat1, lng1, lat2, lng2])
+    dlng = lng2 - lng1
+    x = math.sin(dlng) * math.cos(lat2)
+    y = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlng)
+    bearing = math.degrees(math.atan2(x, y))
+    return bearing % 360
+
+
+def _generate_route_points(start_lat, start_lng, end_lat, end_lng, num_points):
+    """Sample evenly spaced points along the line from start to end."""
+    points = []
+    for i in range(num_points):
+        t = i / max(num_points - 1, 1)
+        lat = start_lat + t * (end_lat - start_lat)
+        lng = start_lng + t * (end_lng - start_lng)
+        points.append((lat, lng))
+    return points
+
+
+def fetch_route(
+    start_lat: float,
+    start_lng: float,
+    end_lat: float,
+    end_lng: float,
+    scene_dir: Path,
+    quality: str = "medium",
+    radius: int = 50,
+    fov: float = 80,
+    pitch: float = 0,
+    pitch_levels: list[float] | None = None,
+    target_size: int = 720,
+    num_points: int = 10,
+    total_images: int = 100,
+) -> Path:
+    """
+    Fetch street view images along a route (line from start to end).
+    Full 360 views at each pano position for maximum overlap between adjacent points.
+    """
+    http = _http_client()
+    session_token = _create_tiles_session(http)
+    scene_dir.mkdir(parents=True, exist_ok=True)
+
+    sample_points = _generate_route_points(start_lat, start_lng, end_lat, end_lng, num_points)
+    route_bearing = _bearing_between(start_lat, start_lng, end_lat, end_lng)
+    print(f"Route: {route_bearing:.1f} deg bearing, sampling {num_points} points...")
+
+    # Find unique panos along the route (ordered)
+    pano_list = []
+    seen_panos = set()
+    for i, (lat, lng) in enumerate(sample_points):
+        try:
+            meta = _get_pano_metadata(http, session_token, lat, lng, radius)
+        except Exception:
+            continue
+        if "panoId" not in meta or meta.get("imageWidth", 0) < 10000:
+            continue
+        pid = meta["panoId"]
+        if pid in seen_panos:
+            continue
+        seen_panos.add(pid)
+        pano_list.append((pid, meta))
+        print(f"  Point {i}: pano {pid} at ({meta.get('lat', lat):.6f}, {meta.get('lng', lng):.6f})")
+
+    if not pano_list:
+        raise RuntimeError("No street view panoramas found along this route")
+
+    num_panos = len(pano_list)
+    pitches = pitch_levels if pitch_levels else [pitch]
+    num_pitches = len(pitches)
+    views_per_pano = max(4, total_images // (num_panos * num_pitches))
+
+    print(f"\n{num_panos} panos along route, {views_per_pano} headings x {num_pitches} pitches = {views_per_pano * num_pitches} views each")
+
+    center_lat = (start_lat + end_lat) / 2
+    center_lng = (start_lng + end_lng) / 2
+    intrinsics = _compute_intrinsics(fov, target_size)
+    all_poses = []
+    all_sources = []
+    img_idx = 0
+
+    for pano_id, meta in pano_list:
+        pano_lat = meta.get("lat", center_lat)
+        pano_lng = meta.get("lng", center_lng)
+        if pano_lat == 0 and pano_lng == 0:
+            continue
+
+        print(f"  Fetching pano {pano_id}...")
+        pano_img = _stitch_panorama(http, session_token, pano_id, meta, quality)
+        tx, ty = _latlng_to_meters(pano_lat, pano_lng, center_lat, center_lng)
+
+        step = 360.0 / views_per_pano
+        for p in pitches:
+            for j in range(views_per_pano):
+                heading = j * step
+                view = _equirect_to_perspective(pano_img, heading, pitch_deg=p, fov_deg=fov, out_size=target_size)
+                filename = f"{img_idx:03d}.jpg"
+                view.save(scene_dir / filename, "JPEG", quality=95)
+
+                pose = _compute_camera_pose(heading, p, tx, ty)
+                all_poses.append(pose)
+                all_sources.append({
+                    "image": filename,
+                    "pano_id": pano_id,
+                    "heading": heading,
+                    "pitch": p,
+                })
+                img_idx += 1
+
+    camera_data = {
+        "scene_center": {"lat": center_lat, "lng": center_lng},
+        "route": {
+            "start": {"lat": start_lat, "lng": start_lng},
+            "end": {"lat": end_lat, "lng": end_lng},
+            "bearing": route_bearing,
+        },
+        "num_images": img_idx,
+        "num_panos": num_panos,
+        "fov_deg": fov,
+        "image_size": target_size,
+        "intrinsics": intrinsics,
+        "poses": all_poses,
+        "sources": all_sources,
+    }
+    with open(scene_dir / "camera_meta.json", "w") as f:
+        json.dump(camera_data, f, indent=2)
+
+    print(f"\nDone! {img_idx} images from {num_panos} panos along route saved to {scene_dir}/")
+    return scene_dir
+
+
 def fetch_scene(
     center_lat: float,
     center_lng: float,

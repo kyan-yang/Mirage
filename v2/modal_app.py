@@ -379,54 +379,87 @@ def main(
     address: str = "",
     lat: float = 0.0,
     lng: float = 0.0,
+    end_address: str = "",
+    end_lat: float = 0.0,
+    end_lng: float = 0.0,
     input_dir: str = "",
     video_path: str = "",
-    num_images: int = 20,
+    num_images: int = 100,
+    num_points: int = 10,
     target_size: int = 518,
     fps: int = 1,
     grid: int = 0,
     grid_spacing: float = 30,
     viewer_url: str = "",
 ) -> None:
-    """Generate a 3D world from an address, coordinates, images, or video."""
+    """Generate a 3D world from an address, coordinates, route, images, or video.
+
+    Route mode: provide --address + --end-address (or --lat/--lng + --end-lat/--end-lng)
+    to sample forward-facing views along a road between two points.
+    """
     import sys
     import tempfile
 
     has_address = bool(address.strip())
     has_coords = lat != 0.0 or lng != 0.0
+    has_end = bool(end_address.strip()) or end_lat != 0.0 or end_lng != 0.0
     has_images = bool(input_dir.strip())
     has_video = bool(video_path.strip())
 
-    if sum([has_address, has_coords, has_images, has_video]) != 1:
-        print("Provide exactly one of: --address, --lat/--lng, --input-dir, --video-path")
+    has_location = has_address or has_coords
+    if sum([has_location, has_images, has_video]) != 1:
+        print("Provide exactly one of: --address/--lat+lng, --input-dir, --video-path")
         sys.exit(1)
 
     image_payloads: list[tuple[str, bytes]] | None = None
     video_bytes: bytes | None = None
     video_filename = "input.mp4"
 
-    if has_address or has_coords:
-        # Street view pipeline
+    if has_location:
         sys.path.insert(0, str(Path(__file__).parent))
-        from fetch_streetview import geocode_address, fetch_scene
+        from fetch_streetview import geocode_address, fetch_scene, fetch_route
 
         if has_address:
             lat, lng = geocode_address(address)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            scene_dir = Path(tmpdir) / "scene"
-            fetch_scene(
-                lat, lng, scene_dir,
-                total_images=num_images,
-                grid_size=grid,
-                grid_spacing=grid_spacing,
-            )
-            files = sorted(p for p in scene_dir.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTS)
-            if not files:
-                print("No images fetched from street view!")
+        # Route mode: start + end point -> forward-facing views along the road
+        if has_end:
+            if end_address.strip():
+                end_lat, end_lng = geocode_address(end_address)
+            elif end_lat == 0.0 and end_lng == 0.0:
+                print("Provide --end-address or --end-lat/--end-lng for route mode")
                 sys.exit(1)
-            image_payloads = [(p.name, p.read_bytes()) for p in files]
-            print(f"\nUploading {len(image_payloads)} images to Modal...")
+
+            with tempfile.TemporaryDirectory() as tmpdir:
+                scene_dir = Path(tmpdir) / "scene"
+                fetch_route(
+                    lat, lng, end_lat, end_lng, scene_dir,
+                    num_points=num_points,
+                    total_images=num_images,
+                )
+                files = sorted(p for p in scene_dir.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTS)
+                if not files:
+                    print("No images fetched along route!")
+                    sys.exit(1)
+                image_payloads = [(p.name, p.read_bytes()) for p in files]
+                print(f"\nUploading {len(image_payloads)} route images to Modal...")
+
+        # Area mode: single point or grid
+        else:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                scene_dir = Path(tmpdir) / "scene"
+                fetch_scene(
+                    lat, lng, scene_dir,
+                    total_images=num_images,
+                    grid_size=grid,
+                    grid_spacing=grid_spacing,
+                )
+                files = sorted(p for p in scene_dir.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTS)
+                if not files:
+                    print("No images fetched from street view!")
+                    sys.exit(1)
+                image_payloads = [(p.name, p.read_bytes()) for p in files]
+                print(f"\nUploading {len(image_payloads)} images to Modal...")
 
     elif has_images:
         src = Path(input_dir)
