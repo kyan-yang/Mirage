@@ -31,6 +31,21 @@
   font-display: swap;
 }
 
+:root {
+  --green: #62de61;
+  --green-light: #ddffdc;
+  --green-dim: #2a5c2a;
+  --green-subtle: #1a3a1a;
+  --bg: #000;
+  --surface: #0a0a0a;
+  --border: #1a1a1a;
+  --border-light: #222;
+  --text: #ddffdc;
+  --text-secondary: #6b8a6b;
+  --text-muted: #3d5c3d;
+  --error: #ee0000;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -38,8 +53,8 @@
 }
 
 body {
-  background: #000;
-  color: #ededed;
+  background: var(--bg);
+  color: var(--text);
   font-family: "Geist Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
   min-height: 100vh;
@@ -47,65 +62,88 @@ body {
   line-height: 1.5;
 }
 
+/* ---- Split layout ---- */
+
+.layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.pane {
+  flex: 1;
+  min-width: 0;
+}
+
+.pane-left {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-right: 1px solid var(--border);
+  padding: 48px 48px 24px;
+  max-width: 520px;
+}
+
+.pane-left-inner {
+  display: flex;
+  flex-direction: column;
+}
+
+.pane-right {
+  flex: 1;
+  padding: 48px;
+  overflow-y: auto;
+}
+
+/* ---- Header (left pane) ---- */
+
 .header {
-  text-align: center;
-  padding: 40px 20px 20px;
-  position: relative;
+  margin-bottom: 32px;
 }
 .header h1 {
-  font-size: 32px;
+  font-size: 24px;
   font-weight: 600;
-  color: #ededed;
+  color: var(--green-light);
   letter-spacing: -0.02em;
 }
 .header p {
-  color: #888;
+  color: var(--text-muted);
   margin-top: 6px;
   font-size: 14px;
+  line-height: 1.5;
 }
 
 .debug-toggle {
-  position: absolute;
-  top: 20px;
-  right: 20px;
+  align-self: flex-start;
   background: transparent;
-  border: 1px solid #333;
-  color: #666;
+  border: none;
+  color: var(--text-muted);
   font-size: 12px;
   font-family: "Geist Mono", monospace;
-  padding: 5px 10px;
-  border-radius: 4px;
+  padding: 0;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: color 0.15s;
 }
 .debug-toggle:hover {
-  border-color: #555;
-  color: #888;
+  color: var(--text-secondary);
 }
 .debug-toggle.active {
-  background: #222;
-  color: #ededed;
-  border-color: #444;
+  color: var(--green);
 }
 
-.main {
-  max-width: 640px;
-  margin: 0 auto;
-  padding: 0 20px 60px;
-}
+/* ---- Tabs ---- */
 
 .tabs {
   display: flex;
   gap: 0;
-  margin-bottom: 24px;
-  border-bottom: 1px solid #222;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
 }
 .tab {
-  padding: 10px 20px;
+  padding: 8px 16px 8px 0;
   background: transparent;
   border: none;
-  color: #666;
-  font-size: 14px;
+  color: var(--text-muted);
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   border-bottom: 2px solid transparent;
@@ -114,62 +152,67 @@ body {
   font-family: inherit;
 }
 .tab:hover {
-  color: #999;
+  color: var(--text-secondary);
 }
 .tab.active {
-  color: #ededed;
-  border-bottom-color: #ededed;
+  color: var(--green-light);
+  border-bottom-color: var(--green);
 }
 
+/* ---- Prompt input ---- */
+
 .input-area {
-  background: #0a0a0a;
-  border: 1px solid #222;
-  border-radius: 6px;
-  padding: 20px;
   margin-bottom: 16px;
 }
 .input-area textarea {
   width: 100%;
-  background: #000;
-  border: 1px solid #333;
-  border-radius: 4px;
-  color: #ededed;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--green-light);
   font-size: 14px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   resize: vertical;
-  min-height: 72px;
+  min-height: 80px;
   font-family: inherit;
   outline: none;
   transition: border-color 0.15s;
 }
 .input-area textarea:focus {
-  border-color: #ededed;
+  border-color: var(--green-dim);
 }
 .input-area textarea::placeholder {
-  color: #555;
+  color: var(--text-muted);
 }
+
+/* ---- Example chips ---- */
 
 .examples {
   display: flex;
-  gap: 6px;
+  gap: 4px 0;
   flex-wrap: wrap;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 .examples button {
   background: transparent;
-  border: 1px solid #333;
-  border-radius: 6px;
-  color: #888;
+  border: none;
+  color: var(--text-muted);
   font-size: 13px;
-  padding: 5px 12px;
+  padding: 3px 0;
+  margin-right: 14px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: color 0.15s;
   font-family: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 3px;
 }
 .examples button:hover {
-  border-color: #555;
-  color: #ededed;
+  color: var(--green-light);
+  text-decoration-color: var(--green-dim);
 }
+
+/* ---- Generate button ---- */
 
 .generate-btn {
   width: 100%;
@@ -178,78 +221,91 @@ body {
   font-size: 14px;
   font-weight: 500;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
-  background: #ededed;
+  background: var(--green);
   color: #000;
   transition: background 0.15s;
   font-family: inherit;
 }
 .generate-btn:hover {
-  background: #fff;
+  background: #80ee64;
 }
 .generate-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.3;
   cursor: not-allowed;
 }
 
-.progress {
-  margin-top: 20px;
+/* ---- Empty state (right pane) ---- */
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 300px;
 }
-.progress.active {
-  display: block;
+.empty-state p {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* ---- Progress steps ---- */
+
+.progress {
+  margin-bottom: 32px;
 }
 .step {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 10px 12px;
-  margin-bottom: 2px;
-  border-left: 2px solid #222;
-  transition: all 0.2s;
+  padding: 10px 0;
+  border-left: 2px solid var(--border);
+  padding-left: 14px;
+  transition: border-color 0.2s;
 }
 .step.active {
-  border-left-color: #ededed;
+  border-left-color: var(--green);
 }
 .step.done {
-  border-left-color: #50e3c2;
+  border-left-color: var(--green-dim);
 }
 .step.error {
-  border-left-color: #ee0000;
+  border-left-color: var(--error);
 }
 .step-icon {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 12px;
   flex-shrink: 0;
-  color: #555;
+  color: var(--text-muted);
   font-family: "Geist Mono", monospace;
 }
 .step.active .step-icon {
-  color: #ededed;
+  color: var(--green);
 }
 .step.done .step-icon {
-  color: #50e3c2;
+  color: var(--green-dim);
 }
 .step.error .step-icon {
-  color: #ee0000;
+  color: var(--error);
 }
 .step-text {
   font-size: 13px;
-  color: #666;
+  color: var(--text-muted);
 }
 .step.active .step-text {
-  color: #ededed;
+  color: var(--green-light);
 }
 .step.done .step-text {
-  color: #888;
+  color: var(--text-secondary);
 }
 .step-detail {
   font-size: 12px;
-  color: #555;
+  color: var(--text-muted);
   margin-top: 2px;
   font-family: "Geist Mono", monospace;
 }
@@ -263,28 +319,31 @@ body {
   display: inline-block;
   width: 14px;
   height: 14px;
-  border: 1.5px solid #333;
-  border-top-color: #ededed;
+  border: 1.5px solid var(--green-subtle);
+  border-top-color: var(--green);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
 
+/* ---- Debug panel ---- */
+
 .debug-section {
-  margin-top: 20px;
+  margin-top: 8px;
   display: none;
 }
 .debug-section.active {
   display: block;
 }
 .debug-panel {
-  background: #0a0a0a;
-  border: 1px solid #222;
-  border-radius: 6px;
-  padding: 14px;
-  margin-bottom: 10px;
+  padding: 0 0 20px;
+  margin-bottom: 0;
+}
+.debug-panel + .debug-panel {
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
 }
 .debug-panel h3 {
-  color: #666;
+  color: var(--text-muted);
   font-size: 11px;
   font-weight: 500;
   margin-bottom: 8px;
@@ -293,7 +352,7 @@ body {
   font-family: "Geist Mono", monospace;
 }
 .debug-panel .content {
-  color: #888;
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -305,37 +364,35 @@ body {
 .debug-panel video {
   width: 100%;
   max-width: 600px;
-  border-radius: 4px;
+  border-radius: 6px;
   margin-top: 8px;
 }
 .file-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 6px;
+  gap: 4px;
   margin-top: 8px;
 }
 .file-item {
   display: block;
-  padding: 6px 10px;
+  padding: 4px 0;
   background: transparent;
-  border: 1px solid #222;
-  border-radius: 4px;
+  border: none;
   font-family: "Geist Mono", monospace;
   font-size: 11px;
-  color: #666;
+  color: var(--text-muted);
   word-break: break-all;
   text-decoration: none;
-  transition: all 0.15s;
+  transition: color 0.15s;
 }
 .file-item:hover {
-  border-color: #444;
-  color: #ededed;
+  color: var(--green-light);
 }
 .file-category {
   margin-top: 14px;
 }
 .file-category h4 {
-  color: #555;
+  color: var(--text-muted);
   font-size: 11px;
   margin-bottom: 6px;
   font-weight: 500;
@@ -344,8 +401,9 @@ body {
   letter-spacing: 0.05em;
 }
 
+/* ---- Result viewer ---- */
+
 .result {
-  margin-top: 20px;
   display: none;
 }
 .result.active {
@@ -354,27 +412,45 @@ body {
 .result .viewer-frame {
   width: 100%;
   height: 500px;
-  border: 1px solid #333;
-  border-radius: 6px;
-  background: #000;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
 }
 .result-links {
   display: flex;
-  gap: 8px;
-  margin-top: 10px;
+  gap: 16px;
+  margin-top: 12px;
   flex-wrap: wrap;
 }
 .result-links a {
-  padding: 8px 14px;
+  padding: 0;
   background: transparent;
-  border: 1px solid #333;
-  border-radius: 6px;
-  color: #888;
-  text-decoration: none;
+  border: none;
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 3px;
   font-size: 13px;
-  transition: all 0.15s;
+  transition: color 0.15s;
 }
 .result-links a:hover {
-  border-color: #555;
-  color: #ededed;
+  color: var(--green-light);
+  text-decoration-color: var(--green-dim);
+}
+
+/* ---- Responsive: stack on small screens ---- */
+
+@media (max-width: 768px) {
+  .layout {
+    flex-direction: column;
+  }
+  .pane-left {
+    max-width: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 32px 20px 24px;
+  }
+  .pane-right {
+    padding: 24px 20px 48px;
+  }
 }

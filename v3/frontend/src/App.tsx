@@ -1,5 +1,4 @@
 import { useState, useCallback } from "react";
-import Header from "./components/Header";
 import TabSelector from "./components/TabSelector";
 import PromptInput from "./components/PromptInput";
 import GenerateButton from "./components/GenerateButton";
@@ -174,24 +173,42 @@ export default function App() {
     }
   }
 
+  const hasOutput = showProgress || result;
+
   return (
-    <>
-      <Header
-        debugMode={debugMode}
-        onToggleDebug={() => setDebugMode((d) => !d)}
-      />
-      <div className="main">
-        <TabSelector category={category} onSelect={setCategory} />
-        <PromptInput
-          category={category}
-          prompt={prompt}
-          onPromptChange={setPrompt}
-        />
-        <GenerateButton
-          generating={generating}
-          disabled={!prompt.trim()}
-          onClick={generate}
-        />
+    <div className="layout">
+      <div className="pane pane-left">
+        <div className="pane-left-inner">
+          <div className="header">
+            <h1>Scenario Generator</h1>
+            <p>Text to 3D world — generate synthetic training environments for autonomous driving and robotics.</p>
+          </div>
+          <TabSelector category={category} onSelect={setCategory} />
+          <PromptInput
+            category={category}
+            prompt={prompt}
+            onPromptChange={setPrompt}
+          />
+          <GenerateButton
+            generating={generating}
+            disabled={!prompt.trim()}
+            onClick={generate}
+          />
+        </div>
+        <button
+          className={`debug-toggle${debugMode ? " active" : ""}`}
+          onClick={() => setDebugMode((d) => !d)}
+        >
+          Debug
+        </button>
+      </div>
+
+      <div className="pane pane-right">
+        {!hasOutput && (
+          <div className="empty-state">
+            <p>Describe a scenario and hit generate to build a 3D world.</p>
+          </div>
+        )}
         {showProgress && <ProgressSteps steps={steps} />}
         {debugMode && hasDebugData && (
           <DebugPanel debugData={debugData} apiUrl={API_URL} />
@@ -200,6 +217,6 @@ export default function App() {
           <ResultViewer result={result} apiUrl={API_URL} />
         )}
       </div>
-    </>
+    </div>
   );
 }
