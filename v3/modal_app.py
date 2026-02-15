@@ -53,7 +53,7 @@ FRONTEND_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Scenario Generator</title>
+<title>Synthetic Training Data Generator</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #0a0c12; color: #f2f4f8; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
@@ -63,6 +63,14 @@ FRONTEND_HTML = """<!DOCTYPE html>
   .header p { color: #9ca3af; margin-top: 8px; font-size: 16px; }
 
   .main { max-width: 700px; margin: 0 auto; padding: 0 20px 60px; }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 2px solid rgba(255,255,255,0.1); }
+  .tab { padding: 12px 24px; background: transparent; border: none; color: #9ca3af; font-size: 15px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.2s; }
+  .tab:hover { color: #e5e7eb; }
+  .tab.active { color: #60a5fa; border-bottom-color: #60a5fa; }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
 
   .input-area { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 24px; margin-bottom: 24px; }
   .input-area textarea { width: 100%; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; color: #f2f4f8; font-size: 16px; padding: 14px 16px; resize: vertical; min-height: 80px; font-family: inherit; outline: none; transition: border-color 0.2s; }
@@ -122,19 +130,45 @@ FRONTEND_HTML = """<!DOCTYPE html>
 </head>
 <body>
 <div class="header">
-  <h1>Scenario Generator</h1>
-  <p>Describe any scenario. We'll generate a 3D world you can explore.</p>
+  <h1>Synthetic Training Data Generator</h1>
+  <p>Generate realistic 3D scenarios for training AI models in rare, edge-case situations</p>
 </div>
 
 <div class="main">
-  <div class="input-area">
-    <textarea id="prompt" placeholder="Describe a scenario... e.g. 'highway with a fallen tree blocking the right lane'" rows="3"></textarea>
-    <div class="examples">
-      <button onclick="setPrompt('road with fallen tree blocking traffic')">Fallen tree</button>
-      <button onclick="setPrompt('flooded suburban street with abandoned cars')">Flood</button>
-      <button onclick="setPrompt('construction zone on a highway with cones and barriers')">Construction</button>
-      <button onclick="setPrompt('snowy mountain road with ice patches')">Snow road</button>
-      <button onclick="setPrompt('city intersection at night with rain')">Rain city</button>
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('autonomous')">🚗 Autonomous Driving</button>
+    <button class="tab" onclick="switchTab('humanoid')">🤖 Humanoid Robots</button>
+  </div>
+
+  <div id="autonomous-content" class="tab-content active">
+    <div class="input-area">
+      <textarea id="prompt-autonomous" placeholder="Describe a driving scenario..." rows="3"></textarea>
+      <div class="examples">
+        <button onclick="setScenario('autonomous', 'snowy road with ice patches')">❄️ Snowy road</button>
+        <button onclick="setScenario('autonomous', 'road with fallen tree blocking traffic')">🌳 Fallen tree</button>
+        <button onclick="setScenario('autonomous', 'flooded suburban street with abandoned cars')">💧 Flooded street</button>
+        <button onclick="setScenario('autonomous', 'construction zone on highway with cones and barriers')">🚧 Construction</button>
+        <button onclick="setScenario('autonomous', 'city intersection at night with heavy rain')">🌧️ Rain at night</button>
+        <button onclick="setScenario('autonomous', 'foggy mountain road with reduced visibility')">🌫️ Heavy fog</button>
+        <button onclick="setScenario('autonomous', 'highway with overturned truck and debris')">🚚 Accident scene</button>
+        <button onclick="setScenario('autonomous', 'narrow bridge with oncoming traffic')">🌉 Narrow bridge</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="humanoid-content" class="tab-content">
+    <div class="input-area">
+      <textarea id="prompt-humanoid" placeholder="Describe a household scenario..." rows="3"></textarea>
+      <div class="examples">
+        <button onclick="setScenario('humanoid', 'pile of dirty dishes in kitchen sink')">🍽️ Dirty dishes</button>
+        <button onclick="setScenario('humanoid', 'laundry basket full of clothes on bed')">👕 Laundry pile</button>
+        <button onclick="setScenario('humanoid', 'cluttered living room with toys scattered on floor')">🧸 Toy mess</button>
+        <button onclick="setScenario('humanoid', 'kitchen counter with spilled groceries and bags')">🛒 Grocery spill</button>
+        <button onclick="setScenario('humanoid', 'unmade bed with tangled sheets and pillows')">🛏️ Messy bed</button>
+        <button onclick="setScenario('humanoid', 'dining table with plates, cups, and food scraps')">🍴 Meal cleanup</button>
+        <button onclick="setScenario('humanoid', 'bathroom with wet towels on floor')">🧻 Bathroom mess</button>
+        <button onclick="setScenario('humanoid', 'workspace desk with papers and cables tangled')">📎 Desk clutter</button>
+      </div>
     </div>
   </div>
 
@@ -190,12 +224,31 @@ FRONTEND_HTML = """<!DOCTYPE html>
 </div>
 
 <script>
-function setPrompt(text) {
-  document.getElementById('prompt').value = text;
+let currentCategory = 'autonomous';
+
+function switchTab(category) {
+  currentCategory = category;
+
+  // Update tab buttons
+  document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+  event.target.classList.add('active');
+
+  // Update content
+  document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+  document.getElementById(category + '-content').classList.add('active');
+}
+
+function setScenario(category, text) {
+  document.getElementById('prompt-' + category).value = text;
+}
+
+function getCurrentPrompt() {
+  const promptField = document.getElementById('prompt-' + currentCategory);
+  return promptField ? promptField.value.trim() : '';
 }
 
 async function generate() {
-  const prompt = document.getElementById('prompt').value.trim();
+  const prompt = getCurrentPrompt();
   if (!prompt) return;
 
   const btn = document.getElementById('genBtn');
@@ -221,7 +274,7 @@ async function generate() {
     const resp = await fetch('/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt })
+      body: JSON.stringify({ prompt, category: currentCategory })
     });
 
     const reader = resp.body.getReader();
@@ -775,7 +828,7 @@ def generate_video(prompt: str, run_id: str) -> bytes:
 def generate_world(
     video_bytes: bytes,
     run_id: str,
-    fps: int = 1,
+    fps: int = 3,
     target_size: int = 518,
     web_max_splats: int = DEFAULT_WEB_MAX_SPLATS,
 ) -> dict[str, Any]:
@@ -1092,7 +1145,7 @@ def viewer() -> FastAPI:
 def main(
     prompt: str = "",
     run_id: str = "",
-    fps: int = 1,
+    fps: int = 3,
     target_size: int = 518,
     viewer_url: str = "",
 ) -> None:
