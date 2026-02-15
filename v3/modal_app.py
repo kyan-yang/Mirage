@@ -517,9 +517,21 @@ def _safe_mkdir(path: Path) -> None:
 
 
 def _list_files(root: Path) -> list[str]:
+    """List all files in directory tree, with error handling."""
     if not root.exists():
         return []
-    return [str(p.relative_to(root)) for p in sorted(root.rglob("*")) if p.is_file()]
+    try:
+        files = []
+        for p in sorted(root.rglob("*")):
+            try:
+                if p.is_file():
+                    files.append(str(p.relative_to(root)))
+            except (OSError, PermissionError):
+                continue
+        return files
+    except Exception as e:
+        print(f"Warning: Error listing files in {root}: {e}")
+        return []
 
 
 def _hf_env(base_env: dict[str, str]) -> dict[str, str]:
@@ -559,11 +571,50 @@ def _build_web_preview(source_ply: Path, max_splats: int = DEFAULT_WEB_MAX_SPLAT
 
 
 def _find_artifact(run_dir: Path, filename: str) -> Path | None:
+    """Find an artifact file in run directory, searching common locations."""
+    if not run_dir.exists():
+        return None
     for candidate in (run_dir / filename, run_dir / "inputs" / filename):
-        if candidate.exists():
+        if candidate.exists() and candidate.is_file():
             return candidate
-    matches = sorted(p for p in run_dir.rglob(filename) if p.is_file())
-    return matches[0] if matches else None
+    try:
+        matches = sorted(p for p in run_dir.rglob(filename) if p.is_file())
+        return matches[0] if matches else None
+    except (OSError, PermissionError):
+        return None
+
+
+def _safe_reload(volume: modal.Volume) -> bool:
+    """Safely reload volume, handling open file conflicts."""
+    try:
+        volume.reload()
+        return True
+    except Exception as e:
+        # Common issue: files are open (being served), can't reload
+        # This is OK - we'll work with stale data
+        if "open files" in str(e).lower():
+            return False
+        # Other errors might be more serious, but don't crash
+        print(f"Volume reload warning: {e}")
+        return False
+
+
+def _validate_run_id(run_id: str) -> bool:
+    """Validate run_id is safe (alphanumeric + dash only)."""
+    import re
+    return bool(re.match(r'^[a-zA-Z0-9_-]+$', run_id)) and len(run_id) <= 64
+
+
+def _read_file_safe(file_path: Path, max_size_mb: int = 500) -> bytes:
+    """Read file with size check to prevent memory issues."""
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    size_mb = file_path.stat().st_size / (1024 * 1024)
+    if size_mb > max_size_mb:
+        raise ValueError(f"File too large: {size_mb:.1f} MB (max {max_size_mb} MB)")
+
+    return file_path.read_bytes()
 
 
 # ---------------------------------------------------------------------------
@@ -574,12 +625,17 @@ def _find_artifact(run_dir: Path, filename: str) -> Path | None:
 @app.function(
     image=light_image,
     secrets=[modal.Secret.from_name("gemini-api-key")],
+    timeout=60,
 )
 def expand_prompt(short_prompt: str) -> str:
     """Use Gemini to expand a short scenario into a video prompt optimized for 3D reconstruction."""
     from google import genai
 
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY not found in environment")
+
+    client = genai.Client(api_key=api_key)
 
     response = client.models.generate_content(
         model="gemini-2.0-flash",
@@ -613,7 +669,7 @@ Respond with ONLY the video prompt, nothing else. Make it vivid and specific, fo
 @app.function(
     image=light_image,
     secrets=[modal.Secret.from_name("gemini-api-key")],
-    timeout=10 * 60,
+    timeout=15 * 60,  # Increased timeout
     volumes={"/data": artifacts_volume},
 )
 def generate_video(prompt: str, run_id: str) -> bytes:
@@ -621,25 +677,41 @@ def generate_video(prompt: str, run_id: str) -> bytes:
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY not found in environment")
+
+    client = genai.Client(api_key=api_key)
 
     print(f"Submitting video generation request...")
     print(f"Prompt for Veo: {prompt}")
-    operation = client.models.generate_videos(
-        model="veo-3.1-generate-preview",
-        prompt=prompt,
-        config=types.GenerateVideosConfig(
-            aspect_ratio="16:9",
-            resolution="720p",
-        ),
-    )
+
+    try:
+        operation = client.models.generate_videos(
+            model="veo-3.1-generate-preview",
+            prompt=prompt,
+            config=types.GenerateVideosConfig(
+                aspect_ratio="16:9",
+                resolution="720p",
+            ),
+        )
+    except Exception as e:
+        raise RuntimeError(f"Failed to submit video generation request: {e}")
 
     elapsed = 0
-    while not operation.done:
+    max_wait = 600  # 10 minutes max
+    while not operation.done and elapsed < max_wait:
         print(f"  Waiting for video... ({elapsed}s)")
         time.sleep(10)
         elapsed += 10
-        operation = client.operations.get(operation)
+        try:
+            operation = client.operations.get(operation)
+        except Exception as e:
+            print(f"Warning: Failed to check operation status: {e}")
+            # Continue trying
+
+    if not operation.done:
+        raise TimeoutError(f"Video generation timed out after {elapsed}s")
 
     # Check for errors in the operation
     if hasattr(operation, 'error') and operation.error:
@@ -661,9 +733,21 @@ def generate_video(prompt: str, run_id: str) -> bytes:
     run_dir = RUNS_DIR / run_id
     _safe_mkdir(run_dir)
     video_path = run_dir / "generated_video.mp4"
-    client.files.download(file=generated_video.video)
-    generated_video.video.save(str(video_path))
-    artifacts_volume.commit()
+
+    try:
+        client.files.download(file=generated_video.video)
+        generated_video.video.save(str(video_path))
+    except Exception as e:
+        raise RuntimeError(f"Failed to download/save video: {e}")
+
+    try:
+        artifacts_volume.commit()
+    except Exception as e:
+        print(f"Warning: Failed to commit volume: {e}")
+        # Continue anyway - file is saved locally
+
+    if not video_path.exists():
+        raise RuntimeError("Video file was not saved successfully")
 
     video_bytes = video_path.read_bytes()
     video_size_mb = len(video_bytes) / (1024 * 1024)
@@ -672,6 +756,7 @@ def generate_video(prompt: str, run_id: str) -> bytes:
     # Warn if video is suspiciously small (likely blank/black)
     if video_size_mb < 0.1:
         print(f"WARNING: Video file is very small ({video_size_mb:.2f} MB) - may be blank or corrupted")
+        raise RuntimeError(f"Video appears to be blank or corrupted ({video_size_mb:.2f} MB)")
 
     return video_bytes
 
@@ -684,7 +769,7 @@ def generate_video(prompt: str, run_id: str) -> bytes:
 @app.function(
     image=gpu_image,
     gpu="H100",
-    timeout=60 * 60,
+    timeout=90 * 60,  # Increased timeout for complex scenes
     volumes={"/data": artifacts_volume, "/cache": weights_volume},
 )
 def generate_world(
@@ -695,6 +780,9 @@ def generate_world(
     web_max_splats: int = DEFAULT_WEB_MAX_SPLATS,
 ) -> dict[str, Any]:
     """Convert video into 3D Gaussian Splat world."""
+    if not video_bytes or len(video_bytes) < 1000:
+        raise ValueError(f"Invalid video input: {len(video_bytes)} bytes")
+
     run_dir = RUNS_DIR / run_id
     _safe_mkdir(run_dir)
     for subdir in ("hub", "transformers", "torch"):
@@ -702,7 +790,13 @@ def generate_world(
 
     # Write video input
     video_path = run_dir / "input_video.mp4"
-    video_path.write_bytes(video_bytes)
+    try:
+        video_path.write_bytes(video_bytes)
+    except Exception as e:
+        raise RuntimeError(f"Failed to write video file: {e}")
+
+    if not video_path.exists() or video_path.stat().st_size == 0:
+        raise RuntimeError("Video file was not written successfully")
 
     # HuggingFace login
     hf_token = os.environ.get("HUGGINGFACE_TOKEN")
@@ -715,29 +809,61 @@ def generate_world(
 
     # Run inference
     env = _hf_env(os.environ)
-    _run([
-        "python3", str(REPO_DIR / "infer.py"),
-        "--input_path", str(video_path),
-        "--output_path", str(run_dir),
-        "--fps", str(fps),
-        "--target_size", str(target_size),
-        "--save_gs",
-    ], cwd=REPO_DIR, env=env)
+    print(f"Starting HunyuanWorld-Mirror inference...")
+    try:
+        output = _run([
+            "python3", str(REPO_DIR / "infer.py"),
+            "--input_path", str(video_path),
+            "--output_path", str(run_dir),
+            "--fps", str(fps),
+            "--target_size", str(target_size),
+            "--save_gs",
+        ], cwd=REPO_DIR, env=env)
+        print(f"Inference completed successfully")
+    except CommandError as e:
+        raise RuntimeError(f"HunyuanWorld-Mirror inference failed: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Unexpected error during inference: {e}")
 
     # Find outputs
+    print(f"Looking for gaussians.ply in {run_dir}...")
     gaussians_ply = _find_artifact(run_dir, "gaussians.ply")
     if gaussians_ply is None:
-        raise FileNotFoundError(f"gaussians.ply not produced. Files: {_list_files(run_dir)}")
+        available_files = _list_files(run_dir)
+        raise FileNotFoundError(
+            f"gaussians.ply not produced by HunyuanWorld-Mirror. "
+            f"Available files ({len(available_files)}): {available_files[:20]}"
+        )
 
-    _build_web_preview(gaussians_ply, max_splats=web_max_splats)
+    print(f"Found gaussians.ply: {gaussians_ply}")
 
-    artifacts_volume.commit()
-    weights_volume.commit()
+    # Build web preview (this can fail without breaking everything)
+    try:
+        preview = _build_web_preview(gaussians_ply, max_splats=web_max_splats)
+        if preview:
+            print(f"Created web preview: {preview}")
+    except Exception as e:
+        print(f"Warning: Failed to create web preview: {e}")
+        # Continue anyway
+
+    # Commit volumes (can fail without breaking)
+    try:
+        artifacts_volume.commit()
+    except Exception as e:
+        print(f"Warning: Failed to commit artifacts volume: {e}")
+
+    try:
+        weights_volume.commit()
+    except Exception as e:
+        print(f"Warning: Failed to commit weights volume: {e}")
+
+    files = _list_files(run_dir)
+    print(f"Generated {len(files)} output files")
 
     return {
         "run_id": run_id,
         "gaussians_ply": str(gaussians_ply.relative_to(run_dir)),
-        "files": _list_files(run_dir),
+        "files": files,
     }
 
 
@@ -749,8 +875,8 @@ def generate_world(
 @app.function(
     image=light_image,
     volumes={"/data": artifacts_volume},
-    allow_concurrent_inputs=20,
 )
+@modal.concurrent(20)
 @modal.asgi_app()
 def viewer() -> FastAPI:
     api = FastAPI(title="Scenario Generator")
@@ -759,61 +885,140 @@ def viewer() -> FastAPI:
     def frontend():
         return FRONTEND_HTML
 
+    @api.get("/health")
+    def health_check():
+        """Health check endpoint."""
+        return JSONResponse({
+            "status": "healthy",
+            "runs_dir_exists": RUNS_DIR.exists(),
+            "timestamp": time.time()
+        })
+
     @api.get("/runs")
     def list_runs():
-        artifacts_volume.reload()
-        run_ids = sorted((p.name for p in RUNS_DIR.glob("*") if p.is_dir()), reverse=True)
-        return JSONResponse({"runs": run_ids})
+        _safe_reload(artifacts_volume)
+        try:
+            if not RUNS_DIR.exists():
+                return JSONResponse({"runs": []})
+            run_ids = sorted((p.name for p in RUNS_DIR.glob("*") if p.is_dir()), reverse=True)
+            return JSONResponse({"runs": run_ids})
+        except Exception as e:
+            print(f"Error listing runs: {e}")
+            return JSONResponse({"runs": [], "error": str(e)})
 
     @api.get("/runs/{run_id}")
     def list_run(run_id: str):
-        artifacts_volume.reload()
+        if not _validate_run_id(run_id):
+            raise HTTPException(400, "invalid run_id format")
+
+        _safe_reload(artifacts_volume)
         run_dir = RUNS_DIR / run_id
         if not run_dir.exists():
             raise HTTPException(404, "run not found")
-        # Load metadata if exists
-        meta_path = run_dir / "meta.json"
-        meta = {}
-        if meta_path.exists():
-            meta = json.loads(meta_path.read_text())
-        return JSONResponse({"run_id": run_id, "files": _list_files(run_dir), **meta})
+
+        try:
+            # Load metadata if exists
+            meta_path = run_dir / "meta.json"
+            meta = {}
+            if meta_path.exists():
+                try:
+                    meta = json.loads(meta_path.read_text())
+                except (json.JSONDecodeError, OSError) as e:
+                    print(f"Failed to load meta.json: {e}")
+                    meta = {"error": "metadata corrupted"}
+
+            files = _list_files(run_dir)
+            return JSONResponse({"run_id": run_id, "files": files, **meta})
+        except Exception as e:
+            print(f"Error reading run {run_id}: {e}")
+            raise HTTPException(500, f"error reading run: {str(e)}")
 
     @api.get("/runs/{run_id}/file")
     def get_file(run_id: str, path: str):
-        artifacts_volume.reload()
-        run_dir = (RUNS_DIR / run_id).resolve()
-        if not run_dir.exists():
-            raise HTTPException(404, "run not found")
-        target = (run_dir / path).resolve()
-        if not str(target).startswith(str(run_dir)):
-            raise HTTPException(400, "invalid path")
-        if not target.exists() or not target.is_file():
-            raise HTTPException(404, "file not found")
-        return FileResponse(target)
+        if not _validate_run_id(run_id):
+            raise HTTPException(400, "invalid run_id format")
+
+        # Don't reload here - this is the hot path that causes open file conflicts
+        # _safe_reload(artifacts_volume)
+
+        try:
+            run_dir = (RUNS_DIR / run_id).resolve()
+            if not run_dir.exists():
+                raise HTTPException(404, "run not found")
+
+            # Security: prevent path traversal
+            target = (run_dir / path).resolve()
+            if not str(target).startswith(str(run_dir)):
+                raise HTTPException(400, "invalid path - path traversal detected")
+
+            if not target.exists():
+                raise HTTPException(404, f"file not found: {path}")
+
+            if not target.is_file():
+                raise HTTPException(400, "path is not a file")
+
+            # For large files, use FileResponse (streaming)
+            # For small files, read into memory to avoid keeping files open
+            file_size_mb = target.stat().st_size / (1024 * 1024)
+            if file_size_mb > 50:
+                # Large file: stream it (keeps file open, but necessary)
+                return FileResponse(target)
+            else:
+                # Small file: read into memory and close immediately
+                from fastapi.responses import Response
+                content = target.read_bytes()
+                # Infer media type
+                import mimetypes
+                media_type, _ = mimetypes.guess_type(str(target))
+                return Response(content=content, media_type=media_type or "application/octet-stream")
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Error serving file {run_id}/{path}: {e}")
+            raise HTTPException(500, f"error serving file: {str(e)}")
 
     @api.get("/runs/{run_id}/view", response_class=HTMLResponse)
     def splat_viewer(run_id: str, request: Request):
-        artifacts_volume.reload()
-        run_dir = (RUNS_DIR / run_id).resolve()
-        if not run_dir.exists():
-            raise HTTPException(404, "run not found")
+        if not _validate_run_id(run_id):
+            raise HTTPException(400, "invalid run_id format")
 
-        # Find the PLY file
-        ply = _find_artifact(run_dir, WEB_PREVIEW_FILENAME) or _find_artifact(run_dir, "gaussians.ply")
-        if not ply:
-            raise HTTPException(404, "No splat file found")
+        _safe_reload(artifacts_volume)
 
-        rel_path = str(ply.relative_to(run_dir))
-        ply_url = f"/runs/{run_id}/file?path={quote(rel_path, safe='')}"
+        try:
+            run_dir = (RUNS_DIR / run_id).resolve()
+            if not run_dir.exists():
+                raise HTTPException(404, "run not found")
 
-        return SPARK_VIEWER_HTML.replace("__RUN_ID__", run_id).replace("__PLY_URL__", ply_url)
+            # Find the PLY file
+            ply = _find_artifact(run_dir, WEB_PREVIEW_FILENAME) or _find_artifact(run_dir, "gaussians.ply")
+            if not ply:
+                raise HTTPException(404, "No splat file found in run directory")
+
+            rel_path = str(ply.relative_to(run_dir))
+            ply_url = f"/runs/{run_id}/file?path={quote(rel_path, safe='')}"
+
+            return SPARK_VIEWER_HTML.replace("__RUN_ID__", run_id).replace("__PLY_URL__", ply_url)
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Error loading viewer for {run_id}: {e}")
+            raise HTTPException(500, f"error loading viewer: {str(e)}")
 
     @api.post("/generate")
     async def generate_endpoint(request: Request):
-        body = await request.json()
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            raise HTTPException(400, "invalid JSON in request body")
+
         prompt = body.get("prompt", "").strip()
         if not prompt:
             raise HTTPException(400, "prompt is required")
+
+        if len(prompt) > 2000:
+            raise HTTPException(400, "prompt too long (max 2000 characters)")
 
         run_id = uuid.uuid4().hex[:12]
 
@@ -821,28 +1026,57 @@ def viewer() -> FastAPI:
             try:
                 # Step 1: Expand prompt
                 yield f"data: {json.dumps({'step': 'expand_start'})}\n\n"
-                expanded = expand_prompt.remote(prompt)
-                yield f"data: {json.dumps({'step': 'expand_done', 'expanded_prompt': expanded})}\n\n"
+                try:
+                    expanded = expand_prompt.remote(prompt)
+                    if not expanded or not expanded.strip():
+                        raise ValueError("Prompt expansion returned empty result")
+                    yield f"data: {json.dumps({'step': 'expand_done', 'expanded_prompt': expanded})}\n\n"
+                except Exception as e:
+                    yield f"data: {json.dumps({'step': 'error', 'message': f'Prompt expansion failed: {str(e)}'})}\n\n"
+                    return
 
                 # Save metadata
-                run_dir = RUNS_DIR / run_id
-                _safe_mkdir(run_dir)
-                meta = {"prompt": prompt, "expanded_prompt": expanded}
-                (run_dir / "meta.json").write_text(json.dumps(meta, indent=2))
-                artifacts_volume.commit()
+                try:
+                    run_dir = RUNS_DIR / run_id
+                    _safe_mkdir(run_dir)
+                    meta = {
+                        "prompt": prompt,
+                        "expanded_prompt": expanded,
+                        "created_at": time.time(),
+                        "run_id": run_id
+                    }
+                    (run_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+                    artifacts_volume.commit()
+                except Exception as e:
+                    print(f"Warning: Failed to save metadata: {e}")
+                    # Continue anyway
 
                 # Step 2: Generate video
                 yield f"data: {json.dumps({'step': 'video_start'})}\n\n"
-                video_bytes = generate_video.remote(expanded, run_id)
-                yield f"data: {json.dumps({'step': 'video_done', 'run_id': run_id})}\n\n"
+                try:
+                    video_bytes = generate_video.remote(expanded, run_id)
+                    if not video_bytes or len(video_bytes) < 1000:
+                        raise ValueError(f"Video generation produced invalid output ({len(video_bytes)} bytes)")
+                    yield f"data: {json.dumps({'step': 'video_done', 'run_id': run_id})}\n\n"
+                except Exception as e:
+                    yield f"data: {json.dumps({'step': 'error', 'message': f'Video generation failed: {str(e)}'})}\n\n"
+                    return
 
                 # Step 3: Generate 3D world
                 yield f"data: {json.dumps({'step': 'world_start'})}\n\n"
-                result = generate_world.remote(video_bytes, run_id)
-                yield f"data: {json.dumps({'step': 'world_done', **result})}\n\n"
+                try:
+                    result = generate_world.remote(video_bytes, run_id)
+                    if not result or "gaussians_ply" not in result:
+                        raise ValueError("World generation did not produce expected output")
+                    yield f"data: {json.dumps({'step': 'world_done', **result})}\n\n"
+                except Exception as e:
+                    yield f"data: {json.dumps({'step': 'error', 'message': f'World generation failed: {str(e)}'})}\n\n"
+                    return
 
             except Exception as exc:
-                yield f"data: {json.dumps({'step': 'error', 'message': str(exc)})}\n\n"
+                import traceback
+                traceback.print_exc()
+                yield f"data: {json.dumps({'step': 'error', 'message': f'Unexpected error: {str(exc)}'})}\n\n"
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
