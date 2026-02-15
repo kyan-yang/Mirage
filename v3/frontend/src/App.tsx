@@ -372,7 +372,7 @@ export default function App() {
         <div className="pane-left-inner">
           <div className="header">
             <div className="header-row">
-              <h1>Scenario Generator</h1>
+              <h1>Synthetic Training Environments</h1>
               {hasOutput && (
                 <button className="new-chat-btn" onClick={handleNewChat}>
                   + New
@@ -380,8 +380,7 @@ export default function App() {
               )}
             </div>
             <p>
-              Text to 3D world — generate synthetic training environments for
-              autonomous driving and robotics.
+              Generate realistic training environments for autonomous vehicles and humanoid robots.
             </p>
           </div>
           <div className="mode-toggle">
