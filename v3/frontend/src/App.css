@@ -212,13 +212,13 @@ body {
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  background: var(--green);
+  background: #ededed;
   color: #000;
-  transition: opacity 0.15s;
+  transition: background 0.15s;
   font-family: inherit;
 }
 .generate-btn:hover {
-  opacity: 0.9;
+  background: #fff;
 }
 .generate-btn:disabled {
   opacity: 0.3;
