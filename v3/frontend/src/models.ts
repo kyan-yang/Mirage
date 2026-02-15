@@ -12,4 +12,5 @@ export const STATIC_MODELS: GalleryItem[] = [
   { name: "Timer", previewImage: "/previews/Timer.png", plyPath: modelUrl("Timer.ply") },
   { name: "Tree", previewImage: "/previews/Tree.png", plyPath: modelUrl("Tree.ply") },
   { name: "TreeHacks", previewImage: "/previews/TreeHacks.png", plyPath: modelUrl("Treehacks.ply") },
+  { name: "Mess", previewImage: "/previews/Mess.png", plyPath: modelUrl("Mess.ply") },
 ];
