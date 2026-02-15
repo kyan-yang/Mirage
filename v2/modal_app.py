@@ -285,7 +285,7 @@ def _find_viewable_splat(run_dir: Path, prefer_preview: bool = True) -> Path | N
 
 @app.function(
     image=image,
-    gpu=modal.gpu.H100(count=2),  # Use 2 H100s on same instance
+    gpu="H100",
     timeout=60 * 60,
     volumes={"/data": artifacts_volume, "/cache": weights_volume},
 )
@@ -297,9 +297,11 @@ def generate_world(
     fps: int = 1,
     target_size: int = 518,
     web_max_splats: int = DEFAULT_WEB_MAX_SPLATS,
-    num_gpus: int = 2,  # Number of GPUs to use
 ) -> dict[str, Any]:
-    """Generate a 3D Gaussian Splat world from images or video."""
+    """Generate a 3D Gaussian Splat world from images or video.
+
+    NOTE: H100 80GB can handle ~20-30 images at 518px. More will OOM.
+    """
     if image_payloads is None and video_bytes is None:
         raise ValueError("Provide either image_payloads or video_bytes")
 
@@ -335,51 +337,17 @@ def generate_world(
         except Exception as exc:
             print(f"WARNING: HuggingFace login failed: {exc}. Model download may fail if weights aren't cached.")
 
-    # Run inference
-    # For multi-GPU, use torchrun if num_gpus > 1 and model supports it
+    # Run inference (single GPU — HunyuanWorld-Mirror doesn't support torchrun distributed)
     env = _hf_env(os.environ)
-    if num_gpus > 1:
-        # Try using PyTorch distributed (torchrun)
-        # This may need adjustment based on HunyuanWorld-Mirror's actual multi-GPU support
-        infer_args = [
-            "torchrun",
-            f"--nproc_per_node={num_gpus}",
-            "--standalone",
-            str(REPO_DIR / "infer.py"),
-            "--input_path", str(input_path),
-            "--output_path", str(run_dir),
-            "--fps", str(fps),
-            "--target_size", str(target_size),
-            "--save_gs",
-        ]
-        env["CUDA_VISIBLE_DEVICES"] = ",".join(str(i) for i in range(num_gpus))
-    else:
-        infer_args = [
-            "python3", str(REPO_DIR / "infer.py"),
-            "--input_path", str(input_path),
-            "--output_path", str(run_dir),
-            "--fps", str(fps),
-            "--target_size", str(target_size),
-            "--save_gs",
-        ]
-
-    try:
-        _run(infer_args, cwd=REPO_DIR, env=env)
-    except CommandError as e:
-        # If torchrun fails, fallback to single GPU
-        if num_gpus > 1:
-            print(f"WARNING: Multi-GPU inference failed, falling back to single GPU: {e}")
-            infer_args = [
-                "python3", str(REPO_DIR / "infer.py"),
-                "--input_path", str(input_path),
-                "--output_path", str(run_dir),
-                "--fps", str(fps),
-                "--target_size", str(target_size),
-                "--save_gs",
-            ]
-            _run(infer_args, cwd=REPO_DIR, env=_hf_env(os.environ))
-        else:
-            raise
+    infer_args = [
+        "python3", str(REPO_DIR / "infer.py"),
+        "--input_path", str(input_path),
+        "--output_path", str(run_dir),
+        "--fps", str(fps),
+        "--target_size", str(target_size),
+        "--save_gs",
+    ]
+    _run(infer_args, cwd=REPO_DIR, env=env)
 
     # Find outputs
     gaussians_ply = _find_artifact(run_dir, "gaussians.ply")
@@ -626,26 +594,20 @@ def main(
     end_lng: float = 0.0,
     input_dir: str = "",
     video_path: str = "",
-    num_images: int = 100,
+    num_images: int = 24,  # H100 80GB OOMs above ~30 images at 518px
     num_points: int = 10,
     target_size: int = 518,
     fps: int = 1,
     grid: int = 0,
     grid_spacing: float = 30,
     viewer_url: str = "",
-    parallel: bool = False,
-    num_chunks: int = 4,
-    num_gpus: int = 2,
 ) -> None:
     """Generate a 3D world from an address, coordinates, route, images, or video.
 
     Route mode: provide --address + --end-address (or --lat/--lng + --end-lat/--end-lng)
-    to sample forward-facing views along a road between two points.
+    to sample views along a road between two points.
 
-    Multi-GPU options:
-        --num-gpus N: Use N GPUs on a single instance (default: 2)
-        --parallel: Split route images across multiple GPU instances
-        --num-chunks N: Number of parallel GPU instances when using --parallel (default: 4)
+    Note: H100 80GB can handle ~24 images at 518px. Use --num-images to control.
     """
     import sys
     import tempfile
@@ -724,26 +686,15 @@ def main(
         video_bytes = src.read_bytes()
         video_filename = src.name
 
-    # Call Modal
-    if parallel and image_payloads and len(image_payloads) > 10:
-        print(f"Starting PARALLEL world generation on Modal ({num_chunks} x H100)...")
-        result = generate_world_parallel_route.remote(
-            image_payloads=image_payloads,
-            num_chunks=num_chunks,
-            fps=fps,
-            target_size=target_size,
-        )
-    else:
-        gpu_label = f"{num_gpus}x H100" if num_gpus > 1 else "H100"
-        print(f"Starting world generation on Modal ({gpu_label})...")
-        result = generate_world.remote(
-            image_payloads=image_payloads,
-            video_bytes=video_bytes,
-            video_filename=video_filename,
-            fps=fps,
-            target_size=target_size,
-            num_gpus=num_gpus,
-        )
+    # Call Modal (single H100 — model doesn't support multi-GPU)
+    print(f"Starting world generation on Modal (H100)...")
+    result = generate_world.remote(
+        image_payloads=image_payloads,
+        video_bytes=video_bytes,
+        video_filename=video_filename,
+        fps=fps,
+        target_size=target_size,
+    )
 
     print("\n" + json.dumps(result, indent=2))
 
@@ -763,5 +714,11 @@ def main(
         ply = result.get("gaussians_ply")
         if ply:
             print(f"Download: {base}/runs/{run_id}/file?path={quote(ply, safe='')}")
+
+        # Auto-open debug browse page
+        from browse import open_browse_page
+        files = result.get("files", [])
+        if files:
+            open_browse_page(run_id, base, files)
     else:
         print("\nDeploy viewer: modal deploy v2/modal_app.py")
