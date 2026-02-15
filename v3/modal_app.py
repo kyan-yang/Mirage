@@ -95,6 +95,18 @@ FRONTEND_HTML = """<!DOCTYPE html>
   @keyframes spin { to { transform: rotate(360deg); } }
   .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(96,165,250,0.3); border-top-color: #60a5fa; border-radius: 50%; animation: spin 0.8s linear infinite; }
 
+  .debug-section { margin-top: 24px; display: none; }
+  .debug-section.active { display: block; }
+  .debug-panel { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .debug-panel h3 { color: #60a5fa; font-size: 14px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .debug-panel .content { color: #d1d5db; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow-y: auto; }
+  .debug-panel video { width: 100%; max-width: 600px; border-radius: 8px; margin-top: 8px; }
+  .file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin-top: 8px; }
+  .file-item { padding: 8px 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; font-family: monospace; font-size: 11px; color: #9ca3af; word-break: break-all; }
+  .file-item:hover { background: rgba(255,255,255,0.08); color: #60a5fa; }
+  .file-category { margin-top: 16px; }
+  .file-category h4 { color: #9ca3af; font-size: 12px; margin-bottom: 8px; font-weight: 600; }
+
   .result { margin-top: 24px; display: none; }
   .result.active { display: block; }
   .result .viewer-frame { width: 100%; height: 500px; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; background: #000; }
@@ -152,6 +164,25 @@ FRONTEND_HTML = """<!DOCTYPE html>
     </div>
   </div>
 
+  <div class="debug-section" id="debugSection">
+    <div class="debug-panel">
+      <h3>Original Prompt</h3>
+      <div class="content" id="debugPrompt"></div>
+    </div>
+    <div class="debug-panel">
+      <h3>Expanded Prompt (Gemini)</h3>
+      <div class="content" id="debugExpandedPrompt"></div>
+    </div>
+    <div class="debug-panel">
+      <h3>Generated Video (Veo 3.1)</h3>
+      <video id="debugVideo" controls></video>
+    </div>
+    <div class="debug-panel">
+      <h3>World Generation Outputs</h3>
+      <div id="debugFiles"></div>
+    </div>
+  </div>
+
   <div class="result" id="result">
     <iframe id="viewerFrame" class="viewer-frame" frameborder="0"></iframe>
     <div class="result-links" id="resultLinks"></div>
@@ -174,6 +205,10 @@ async function generate() {
   const progress = document.getElementById('progress');
   progress.classList.add('active');
   document.getElementById('result').classList.remove('active');
+  document.getElementById('debugSection').classList.remove('active');
+
+  // Store original prompt
+  document.getElementById('debugPrompt').textContent = prompt;
 
   // Reset steps
   ['expand', 'video', 'world'].forEach(s => {
@@ -226,6 +261,8 @@ function handleEvent(data) {
   if (data.step === 'expand_done') {
     setStepState('expand', 'done');
     document.getElementById('step-expand-detail').textContent = data.expanded_prompt?.slice(0, 120) + '...';
+    document.getElementById('debugExpandedPrompt').textContent = data.expanded_prompt || '';
+    document.getElementById('debugSection').classList.add('active');
   }
   if (data.step === 'video_start') setStepState('video', 'active');
   if (data.step === 'video_polling') {
@@ -234,11 +271,16 @@ function handleEvent(data) {
   if (data.step === 'video_done') {
     setStepState('video', 'done');
     document.getElementById('step-video-detail').textContent = 'Video ready';
+    if (data.run_id) {
+      const videoEl = document.getElementById('debugVideo');
+      videoEl.src = '/runs/' + data.run_id + '/file?path=generated_video.mp4';
+    }
   }
   if (data.step === 'world_start') setStepState('world', 'active');
   if (data.step === 'world_done') {
     setStepState('world', 'done');
     showResult(data);
+    showDebugFiles(data);
   }
   if (data.step === 'error') {
     ['expand', 'video', 'world'].forEach(s => {
@@ -249,6 +291,62 @@ function handleEvent(data) {
       }
     });
   }
+}
+
+function showDebugFiles(data) {
+  const filesEl = document.getElementById('debugFiles');
+  const files = data.files || [];
+  const runId = data.run_id;
+
+  // Categorize files
+  const categories = {
+    'Final Outputs': [],
+    'Depth Maps': [],
+    'Normal Maps': [],
+    'RGB Images': [],
+    'Resized Images': [],
+    'Input Frames': [],
+    'Rendered Videos': [],
+    'COLMAP Data': [],
+    'Other': []
+  };
+
+  files.forEach(file => {
+    const lower = file.toLowerCase();
+    if (file.includes('gaussians.ply') || file === 'generated_video.mp4') {
+      categories['Final Outputs'].push(file);
+    } else if (file.includes('depth/')) {
+      categories['Depth Maps'].push(file);
+    } else if (file.includes('normal/')) {
+      categories['Normal Maps'].push(file);
+    } else if (file.includes('images/') && !file.includes('resized')) {
+      categories['RGB Images'].push(file);
+    } else if (file.includes('images_resized/')) {
+      categories['Resized Images'].push(file);
+    } else if (file.includes('input_frames/')) {
+      categories['Input Frames'].push(file);
+    } else if (file.includes('rendered_')) {
+      categories['Rendered Videos'].push(file);
+    } else if (file.includes('sparse/')) {
+      categories['COLMAP Data'].push(file);
+    } else {
+      categories['Other'].push(file);
+    }
+  });
+
+  let html = '';
+  for (const [category, categoryFiles] of Object.entries(categories)) {
+    if (categoryFiles.length > 0) {
+      html += '<div class="file-category"><h4>' + category + ' (' + categoryFiles.length + ')</h4><div class="file-grid">';
+      categoryFiles.forEach(file => {
+        const url = '/runs/' + runId + '/file?path=' + encodeURIComponent(file);
+        html += '<a href="' + url + '" target="_blank" class="file-item">' + file + '</a>';
+      });
+      html += '</div></div>';
+    }
+  }
+
+  filesEl.innerHTML = html;
 }
 
 function showResult(data) {
@@ -715,7 +813,7 @@ def viewer() -> FastAPI:
                 # Step 2: Generate video
                 yield f"data: {json.dumps({'step': 'video_start'})}\n\n"
                 video_bytes = generate_video.remote(expanded, run_id)
-                yield f"data: {json.dumps({'step': 'video_done'})}\n\n"
+                yield f"data: {json.dumps({'step': 'video_done', 'run_id': run_id})}\n\n"
 
                 # Step 3: Generate 3D world
                 yield f"data: {json.dumps({'step': 'world_start'})}\n\n"
