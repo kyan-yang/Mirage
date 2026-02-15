@@ -277,59 +277,96 @@ SPARK_VIEWER_HTML = """<!DOCTYPE html>
 <title>3D Viewer | __RUN_ID__</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
+  html, body { width: 100%; height: 100%; background: #2b2928; overflow: hidden; }
   canvas { display: block; width: 100%; height: 100%; }
-  #loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #9ca3af; font-family: sans-serif; font-size: 14px; z-index: 10; }
+  #loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5, 5, 5, 0.8); backdrop-filter: blur(4px); z-index: 10; }
+  #loading-content { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+  .spinner { position: relative; width: 40px; height: 40px; }
+  .spinner-ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid transparent; animation: spin 1s linear infinite; }
+  .spinner-ring:nth-child(1) { border-top-color: #60a5fa; }
+  .spinner-ring:nth-child(2) { inset: 4px; border-bottom-color: #60a5fa; animation-direction: reverse; animation-duration: 1.5s; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { color: #f2f4f8; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; font-weight: 500; }
+  .controls-hint { position: absolute; bottom: 16px; right: 16px; padding: 8px 16px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; backdrop-filter: blur(8px); color: #9ca3af; font-family: monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; z-index: 5; }
 </style>
 <script type="importmap">
 {
   "imports": {
     "three": "https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/",
     "@sparkjsdev/spark": "https://cdn.jsdelivr.net/npm/@sparkjsdev/spark@0.1.10/dist/spark.module.js"
   }
 }
 </script>
 </head>
 <body>
-<div id="loading">Loading 3D scene...</div>
+<div id="loading">
+  <div id="loading-content">
+    <div class="spinner">
+      <div class="spinner-ring"></div>
+      <div class="spinner-ring"></div>
+    </div>
+    <div class="loading-text">Loading splat...</div>
+  </div>
+</div>
+<div class="controls-hint">Click + drag to look · WASD / Arrows to move · Scroll to zoom</div>
 <script type="module">
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { SplatMesh } from '@sparkjsdev/spark';
+import { SplatMesh, SparkControls } from '@sparkjsdev/spark';
+
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+canvas.style.width = '100%';
+canvas.style.height = '100%';
+document.body.appendChild(canvas);
+
+// Camera - same as official Spark viewer
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
+camera.position.set(0, 0, 1);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(0, 1.5, 3);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio);
-document.body.appendChild(renderer.domElement);
+// Renderer
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+renderer.setSize(window.innerWidth, window.innerHeight, false);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.1;
-controls.target.set(0, 0, 0);
+// SparkControls - handles mouse orbit, scroll zoom, WASD, arrow keys
+const controls = new SparkControls({ canvas });
 
+// Load splat - matches official Spark viewer pattern
 const splat = new SplatMesh({ url: "__PLY_URL__" });
-splat.addEventListener('load', () => {
-  document.getElementById('loading').style.display = 'none';
-});
+splat.quaternion.set(1, 0, 0, 0);
 scene.add(splat);
 
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+// Wait for splat to load before hiding loading screen
+splat.initialized.then(() => {
+  document.getElementById('loading').style.display = 'none';
+  console.log('Splat loaded:', splat.numSplats, 'splats');
+}).catch(err => {
+  console.error('Failed to load splat:', err);
+  document.querySelector('.loading-text').textContent = 'Failed to load splat';
 });
 
-function animate() {
-  requestAnimationFrame(animate);
-  controls.update();
-  renderer.render(scene, camera);
+// Resize handler
+function resize() {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  if (w === 0 || h === 0) return;
+  const needResize = canvas.width !== w || canvas.height !== h;
+  if (needResize) {
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
 }
-animate();
+window.addEventListener('resize', resize);
+
+// Animation loop - exactly matches official viewer
+renderer.setAnimationLoop(() => {
+  resize();
+  controls.update(camera);
+  renderer.render(scene, camera);
+});
 </script>
 </body>
 </html>"""
@@ -479,6 +516,7 @@ Respond with ONLY the video prompt, nothing else.""",
     image=light_image,
     secrets=[modal.Secret.from_name("gemini-api-key")],
     timeout=10 * 60,
+    volumes={"/data": artifacts_volume},
 )
 def generate_video(prompt: str, run_id: str) -> bytes:
     """Generate a video using Google Veo 3.1 and return the bytes."""
