@@ -56,25 +56,21 @@ body {
 .layout {
   display: flex;
   min-height: 100vh;
-  transition: all 0.4s ease;
 }
 
 /* Centered initial state */
 .layout.centered {
   align-items: center;
   justify-content: center;
+  padding: 48px;
 }
 
 .layout.centered .pane-left {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
   border-right: none;
-  max-width: 520px;
-  width: 100%;
   padding: 48px;
-  transition: all 0.4s ease;
-  flex: none;
+  flex: 0 0 auto;
+  min-height: auto;
+  justify-content: center;
 }
 
 .layout.centered .pane-right {
@@ -93,7 +89,6 @@ body {
   border-right: 1px solid #111;
   padding: 48px 48px 24px;
   max-width: 520px;
-  transition: all 0.4s ease;
 }
 
 .pane-left-inner {
