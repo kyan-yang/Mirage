@@ -1,17 +1,3 @@
-"use client";
-
-/**
- * Matches the official Spark viewer pattern from:
- * https://github.com/sparkjsdev/spark/blob/main/examples/viewer/index.html
- *
- * Key differences from our previous attempts:
- * 1. No explicit SparkRenderer — Spark auto-creates one internally.
- * 2. Pass `fileName` to SplatMesh so it can detect .splat/.ksplat formats.
- * 3. No position override on the splat — let it load at origin.
- * 4. SparkControls handles ALL navigation (mouse + WASD/arrows) — no custom handler.
- * 5. Camera starts at (0, 0, 1) with FOV 75 (matches official viewer).
- */
-
 import { useEffect, useRef, useState } from "react";
 
 interface SplatViewerProps {
@@ -19,6 +5,11 @@ interface SplatViewerProps {
   fileName: string | null;
 }
 
+/**
+ * In-browser Gaussian Splat viewer powered by Spark + Three.js.
+ * Receives raw PLY/splat bytes and renders them on a canvas
+ * with orbit / zoom / WASD controls.
+ */
 export default function SplatViewer({ fileData, fileName }: SplatViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<{
@@ -55,27 +46,22 @@ export default function SplatViewer({ fileData, fileName }: SplatViewerProps) {
         const w = container.clientWidth;
         const h = container.clientHeight;
 
-        // Camera — same as official Spark viewer
         const camera = new THREE.PerspectiveCamera(75, w / h, 0.01, 1000);
         camera.position.set(0, 0, 1);
 
         const scene = new THREE.Scene();
 
-        // Renderer — use the canvas we created
         const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
         renderer.setSize(w, h, false);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-        // SparkControls — handles mouse orbit, scroll zoom, WASD, arrow keys
         const controls = new SparkControls({ canvas });
 
-        // Resize handler
         const resize = () => {
           const cw = container.clientWidth;
           const ch = container.clientHeight;
           if (cw === 0 || ch === 0) return;
-          const needResize = canvas.width !== cw || canvas.height !== ch;
-          if (needResize) {
+          if (canvas.width !== cw || canvas.height !== ch) {
             renderer.setSize(cw, ch, false);
             camera.aspect = cw / ch;
             camera.updateProjectionMatrix();
@@ -83,18 +69,22 @@ export default function SplatViewer({ fileData, fileName }: SplatViewerProps) {
         };
         window.addEventListener("resize", resize);
 
-        // Animation loop — exactly matches official viewer
         renderer.setAnimationLoop(() => {
           resize();
           controls.update(camera);
           renderer.render(scene, camera);
         });
 
-        stateRef.current = { scene, camera, renderer, controls, splatMesh: null };
-        console.log("[Spark] init complete ✓  canvas:", w, "×", h);
+        stateRef.current = {
+          scene,
+          camera,
+          renderer,
+          controls,
+          splatMesh: null,
+        };
         return true;
-      } catch (e: any) {
-        console.error("[Spark] init error:", e);
+      } catch (e) {
+        console.error("[SplatViewer] init error:", e);
         return false;
       }
     })();
@@ -130,7 +120,6 @@ export default function SplatViewer({ fileData, fileName }: SplatViewerProps) {
       if (cancelled || !ok || !stateRef.current) return;
 
       const { scene, camera } = stateRef.current;
-
       setIsLoading(true);
 
       const { SplatMesh } = await import("@sparkjsdev/spark");
@@ -143,18 +132,7 @@ export default function SplatViewer({ fileData, fileName }: SplatViewerProps) {
         stateRef.current.splatMesh = null;
       }
 
-      // Exactly matches official Spark viewer:
-      //   fileBytes = new Uint8Array(await splatFile.arrayBuffer());
-      //   fileName = splatFile.name;
-      //   setSplatFile({ fileBytes: fileBytes.slice(), fileName });
-      //
-      //   loadedSplat = new SplatMesh(init);
-      //   loadedSplat.quaternion.set(1, 0, 0, 0);
-      //   scene.add(loadedSplat);
-
       const bytes = fileData.slice(0);
-      console.log("[Spark] loading splat:", fileName, "bytes:", bytes.byteLength);
-
       const initObj: any = { fileBytes: bytes };
       if (fileName) initObj.fileName = fileName;
 
@@ -163,17 +141,14 @@ export default function SplatViewer({ fileData, fileName }: SplatViewerProps) {
       scene.add(splatMesh);
       stateRef.current.splatMesh = splatMesh;
 
-      // Reset camera for the new file
       camera.position.set(0, 0, 1);
 
-      // Wait for initialization to get splat count
       try {
         await splatMesh.initialized;
         if (cancelled) return;
-        console.log("[Spark] loaded ✓ splats:", splatMesh.numSplats);
         setSplatCount(splatMesh.numSplats ?? null);
       } catch (e) {
-        console.warn("[Spark] init await error:", e);
+        console.warn("[SplatViewer] init await error:", e);
       }
 
       setIsLoading(false);
@@ -184,55 +159,33 @@ export default function SplatViewer({ fileData, fileName }: SplatViewerProps) {
     };
   }, [fileData, fileName]);
 
-  const showHUD = fileData !== null && !isLoading;
-
   return (
-    <div className="relative h-full w-full">
-      {/* Canvas container */}
-      <div ref={containerRef} className="h-full w-full bg-[#2b2928]" />
+    <div className="splat-viewer-wrapper">
+      <div ref={containerRef} className="splat-viewer-canvas" />
 
-      {/* Loading spinner */}
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#050505]/80 backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-4">
-            <div className="relative h-10 w-10">
-              <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-[var(--accent)]" />
-              <div
-                className="absolute inset-1 animate-spin rounded-full border-2 border-transparent border-b-[var(--accent)]"
-                style={{ animationDirection: "reverse", animationDuration: "1.5s" }}
-              />
-            </div>
-            <p className="text-sm font-medium text-[var(--foreground)]">Loading splat...</p>
-          </div>
+        <div className="splat-viewer-loading">
+          <span className="spinner" />
+          <span>Loading splat...</span>
         </div>
       )}
 
-      {/* File info badge */}
-      {showHUD && fileName && (
-        <div className="absolute left-4 top-4 animate-fade-in">
-          <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)]/80 px-3 py-1.5 backdrop-blur-md">
-            <div className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            <span className="font-mono text-xs text-[var(--muted)]">{fileName}</span>
-            {splatCount !== null && (
-              <>
-                <span className="text-white/10">|</span>
-                <span className="font-mono text-xs text-[var(--muted)]">
-                  {splatCount.toLocaleString()} splats
-                </span>
-              </>
-            )}
-          </div>
+      {!isLoading && fileData && fileName && (
+        <div className="splat-viewer-hud">
+          <span className="splat-viewer-dot" />
+          <span>{fileName}</span>
+          {splatCount !== null && (
+            <>
+              <span className="splat-viewer-sep">|</span>
+              <span>{splatCount.toLocaleString()} splats</span>
+            </>
+          )}
         </div>
       )}
 
-      {/* Controls hint */}
-      {showHUD && (
-        <div className="absolute bottom-4 right-4 animate-fade-in">
-          <div className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)]/60 px-3 py-1.5 backdrop-blur-md">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--muted)]">
-              Click + drag to look &middot; WASD / Arrows to move &middot; Scroll to zoom
-            </span>
-          </div>
+      {!isLoading && fileData && (
+        <div className="splat-viewer-controls-hint">
+          Click + drag to look &middot; WASD to move &middot; Scroll to zoom
         </div>
       )}
     </div>
