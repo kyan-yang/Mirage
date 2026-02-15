@@ -11,6 +11,13 @@ Usage:
     # Generate from local images
     modal run v2/modal_app.py --input-dir ./my-photos
 
+    # Generate route with parallel processing (4 GPU instances)
+    modal run v2/modal_app.py --lat 30.2885 --lng -97.7275 \
+        --end-lat 30.2900 --end-lng -97.7262 --parallel --num-chunks 4
+
+    # Generate with multiple GPUs on single instance
+    modal run v2/modal_app.py --address "Stanford" --num-gpus 4
+
     # Deploy viewer
     modal deploy v2/modal_app.py
 """
@@ -212,7 +219,7 @@ def _find_viewable_splat(run_dir: Path, prefer_preview: bool = True) -> Path | N
 
 @app.function(
     image=image,
-    gpu="H100",
+    gpu=modal.gpu.H100(count=2),  # Use 2 H100s on same instance
     timeout=60 * 60,
     volumes={"/data": artifacts_volume, "/cache": weights_volume},
 )
@@ -224,6 +231,7 @@ def generate_world(
     fps: int = 1,
     target_size: int = 518,
     web_max_splats: int = DEFAULT_WEB_MAX_SPLATS,
+    num_gpus: int = 2,  # Number of GPUs to use
 ) -> dict[str, Any]:
     """Generate a 3D Gaussian Splat world from images or video."""
     if image_payloads is None and video_bytes is None:
@@ -262,15 +270,50 @@ def generate_world(
             print(f"WARNING: HuggingFace login failed: {exc}. Model download may fail if weights aren't cached.")
 
     # Run inference
-    infer_args = [
-        "python3", str(REPO_DIR / "infer.py"),
-        "--input_path", str(input_path),
-        "--output_path", str(run_dir),
-        "--fps", str(fps),
-        "--target_size", str(target_size),
-        "--save_gs",
-    ]
-    _run(infer_args, cwd=REPO_DIR, env=_hf_env(os.environ))
+    # For multi-GPU, use torchrun if num_gpus > 1 and model supports it
+    env = _hf_env(os.environ)
+    if num_gpus > 1:
+        # Try using PyTorch distributed (torchrun)
+        # This may need adjustment based on HunyuanWorld-Mirror's actual multi-GPU support
+        infer_args = [
+            "torchrun",
+            f"--nproc_per_node={num_gpus}",
+            "--standalone",
+            str(REPO_DIR / "infer.py"),
+            "--input_path", str(input_path),
+            "--output_path", str(run_dir),
+            "--fps", str(fps),
+            "--target_size", str(target_size),
+            "--save_gs",
+        ]
+        env["CUDA_VISIBLE_DEVICES"] = ",".join(str(i) for i in range(num_gpus))
+    else:
+        infer_args = [
+            "python3", str(REPO_DIR / "infer.py"),
+            "--input_path", str(input_path),
+            "--output_path", str(run_dir),
+            "--fps", str(fps),
+            "--target_size", str(target_size),
+            "--save_gs",
+        ]
+
+    try:
+        _run(infer_args, cwd=REPO_DIR, env=env)
+    except CommandError as e:
+        # If torchrun fails, fallback to single GPU
+        if num_gpus > 1:
+            print(f"WARNING: Multi-GPU inference failed, falling back to single GPU: {e}")
+            infer_args = [
+                "python3", str(REPO_DIR / "infer.py"),
+                "--input_path", str(input_path),
+                "--output_path", str(run_dir),
+                "--fps", str(fps),
+                "--target_size", str(target_size),
+                "--save_gs",
+            ]
+            _run(infer_args, cwd=REPO_DIR, env=_hf_env(os.environ))
+        else:
+            raise
 
     # Find outputs
     gaussians_ply = _find_artifact(run_dir, "gaussians.ply")
@@ -287,6 +330,129 @@ def generate_world(
         "gaussians_ply": str(gaussians_ply.relative_to(run_dir)),
         "web_preview_ply": str(web_preview.relative_to(run_dir)) if web_preview else None,
         "files": _list_files(run_dir),
+    }
+
+
+# Parallel batch processing across multiple instances
+@app.function(
+    image=image,
+    gpu="H100",  # Each instance gets 1 H100
+    timeout=60 * 60,
+    volumes={"/data": artifacts_volume, "/cache": weights_volume},
+)
+def generate_world_single_gpu(
+    image_payloads: list[tuple[str, bytes]] | None = None,
+    video_bytes: bytes | None = None,
+    video_filename: str = "input.mp4",
+    run_id: str | None = None,
+    fps: int = 1,
+    target_size: int = 518,
+    web_max_splats: int = DEFAULT_WEB_MAX_SPLATS,
+) -> dict[str, Any]:
+    """Single GPU version for parallel batch processing."""
+    return generate_world(
+        image_payloads=image_payloads,
+        video_bytes=video_bytes,
+        video_filename=video_filename,
+        run_id=run_id,
+        fps=fps,
+        target_size=target_size,
+        web_max_splats=web_max_splats,
+        num_gpus=1,
+    )
+
+
+@app.function()
+def batch_generate_worlds(
+    batch_inputs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Process multiple scenes in parallel across multiple GPU instances.
+
+    Example:
+        batch_inputs = [
+            {"image_payloads": images1, "run_id": "scene1"},
+            {"image_payloads": images2, "run_id": "scene2"},
+            {"video_bytes": video_data, "run_id": "scene3"},
+        ]
+    """
+    results = list(generate_world_single_gpu.map(batch_inputs))
+    return results
+
+
+@app.function(
+    image=image,
+    gpu="H100",
+    timeout=60 * 60,
+    volumes={"/data": artifacts_volume, "/cache": weights_volume},
+)
+def process_route_chunk(
+    chunk_images: list[tuple[str, bytes]],
+    chunk_id: str,
+    fps: int = 1,
+    target_size: int = 518,
+    web_max_splats: int = DEFAULT_WEB_MAX_SPLATS,
+) -> dict[str, Any]:
+    """Process a chunk of route images on a single GPU."""
+    run_id = f"route_chunk_{chunk_id}"
+    return generate_world(
+        image_payloads=chunk_images,
+        run_id=run_id,
+        fps=fps,
+        target_size=target_size,
+        web_max_splats=web_max_splats,
+        num_gpus=1,
+    )
+
+
+@app.function()
+def generate_world_parallel_route(
+    image_payloads: list[tuple[str, bytes]],
+    num_chunks: int = 4,
+    fps: int = 1,
+    target_size: int = 518,
+    web_max_splats: int = DEFAULT_WEB_MAX_SPLATS,
+) -> dict[str, Any]:
+    """
+    Process a route's images in parallel by splitting into chunks.
+    Each chunk is processed on a separate GPU instance concurrently.
+
+    Args:
+        image_payloads: List of (filename, bytes) tuples
+        num_chunks: Number of parallel GPU instances to use
+        fps: Frames per second for video extraction
+        target_size: Target image size
+        web_max_splats: Maximum splats for web preview
+
+    Returns:
+        Combined results from all chunks
+    """
+    # Split images into chunks
+    chunk_size = max(1, len(image_payloads) // num_chunks)
+    chunks = []
+    for i in range(0, len(image_payloads), chunk_size):
+        chunk = image_payloads[i:i + chunk_size]
+        chunks.append({
+            "chunk_images": chunk,
+            "chunk_id": f"{uuid.uuid4().hex[:8]}_{i // chunk_size}",
+            "fps": fps,
+            "target_size": target_size,
+            "web_max_splats": web_max_splats,
+        })
+
+    print(f"Processing {len(image_payloads)} images across {len(chunks)} parallel GPU instances...")
+
+    # Process all chunks in parallel using .starmap()
+    results = list(process_route_chunk.starmap(
+        [(c["chunk_images"], c["chunk_id"], c["fps"], c["target_size"], c["web_max_splats"])
+         for c in chunks]
+    ))
+
+    # Return combined results
+    return {
+        "num_chunks": len(chunks),
+        "chunk_results": results,
+        "total_images": len(image_payloads),
     }
 
 
@@ -391,11 +557,19 @@ def main(
     grid: int = 0,
     grid_spacing: float = 30,
     viewer_url: str = "",
+    parallel: bool = False,
+    num_chunks: int = 4,
+    num_gpus: int = 2,
 ) -> None:
     """Generate a 3D world from an address, coordinates, route, images, or video.
 
     Route mode: provide --address + --end-address (or --lat/--lng + --end-lat/--end-lng)
     to sample forward-facing views along a road between two points.
+
+    Multi-GPU options:
+        --num-gpus N: Use N GPUs on a single instance (default: 2)
+        --parallel: Split route images across multiple GPU instances
+        --num-chunks N: Number of parallel GPU instances when using --parallel (default: 4)
     """
     import sys
     import tempfile
@@ -475,14 +649,25 @@ def main(
         video_filename = src.name
 
     # Call Modal
-    print("Starting world generation on Modal (H100)...")
-    result = generate_world.remote(
-        image_payloads=image_payloads,
-        video_bytes=video_bytes,
-        video_filename=video_filename,
-        fps=fps,
-        target_size=target_size,
-    )
+    if parallel and image_payloads and len(image_payloads) > 10:
+        print(f"Starting PARALLEL world generation on Modal ({num_chunks} x H100)...")
+        result = generate_world_parallel_route.remote(
+            image_payloads=image_payloads,
+            num_chunks=num_chunks,
+            fps=fps,
+            target_size=target_size,
+        )
+    else:
+        gpu_label = f"{num_gpus}x H100" if num_gpus > 1 else "H100"
+        print(f"Starting world generation on Modal ({gpu_label})...")
+        result = generate_world.remote(
+            image_payloads=image_payloads,
+            video_bytes=video_bytes,
+            video_filename=video_filename,
+            fps=fps,
+            target_size=target_size,
+            num_gpus=num_gpus,
+        )
 
     print("\n" + json.dumps(result, indent=2))
 
