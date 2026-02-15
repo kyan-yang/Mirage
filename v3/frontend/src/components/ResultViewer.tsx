@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import type { ResultData } from "../App";
+import { saveGalleryItem } from "../galleryStore";
 import SplatViewer from "./SplatViewer";
 
 interface ResultViewerProps {
@@ -7,10 +8,15 @@ interface ResultViewerProps {
   apiUrl: string;
 }
 
+const DEFAULT_CREATION_NAME = "My creation";
+
 export default function ResultViewer({ result, apiUrl }: ResultViewerProps) {
   const [plyData, setPlyData] = useState<Uint8Array | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [addToGalleryMessage, setAddToGalleryMessage] = useState<string | null>(null);
+  const [showNameDialog, setShowNameDialog] = useState(false);
+  const [galleryName, setGalleryName] = useState(DEFAULT_CREATION_NAME);
 
   const plyPath = result.gaussiansPly;
   const fileUrl = `${apiUrl}/runs/${result.runId}/file?path=${encodeURIComponent(plyPath)}`;
@@ -56,6 +62,30 @@ export default function ResultViewer({ result, apiUrl }: ResultViewerProps) {
     fetchPly();
   }, [fetchPly]);
 
+  const openNameDialog = useCallback(() => {
+    if (!plyData) return;
+    setGalleryName(DEFAULT_CREATION_NAME);
+    setShowNameDialog(true);
+  }, [plyData]);
+
+  const closeNameDialog = useCallback(() => {
+    setShowNameDialog(false);
+  }, []);
+
+  const confirmAddToGallery = useCallback(() => {
+    if (!plyData) return;
+    const name = galleryName.trim() || DEFAULT_CREATION_NAME;
+    try {
+      saveGalleryItem(name, plyData);
+      setShowNameDialog(false);
+      setAddToGalleryMessage("Added to gallery!");
+      setTimeout(() => setAddToGalleryMessage(null), 3000);
+    } catch (err) {
+      setAddToGalleryMessage("Failed to save (e.g. storage limit)");
+      setTimeout(() => setAddToGalleryMessage(null), 4000);
+    }
+  }, [plyData, galleryName]);
+
   return (
     <div className="result active">
       <div className="splat-container">
@@ -93,7 +123,66 @@ export default function ResultViewer({ result, apiUrl }: ResultViewerProps) {
         >
           All files
         </a>
+        {!loading && !error && plyData && (
+          <button
+            type="button"
+            className="result-add-to-gallery"
+            onClick={openNameDialog}
+          >
+            Add to gallery
+          </button>
+        )}
       </div>
+      {addToGalleryMessage && (
+        <div className="result-gallery-toast">{addToGalleryMessage}</div>
+      )}
+
+      {showNameDialog && (
+        <div
+          className="result-name-dialog-overlay"
+          onClick={closeNameDialog}
+          role="presentation"
+        >
+          <div
+            className="result-name-dialog"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="result-name-dialog-title"
+          >
+            <h3 id="result-name-dialog-title" className="result-name-dialog-title">
+              Name this creation
+            </h3>
+            <input
+              type="text"
+              className="result-name-dialog-input"
+              value={galleryName}
+              onChange={(e) => setGalleryName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmAddToGallery();
+                if (e.key === "Escape") closeNameDialog();
+              }}
+              placeholder={DEFAULT_CREATION_NAME}
+              autoFocus
+            />
+            <div className="result-name-dialog-actions">
+              <button
+                type="button"
+                className="result-name-dialog-cancel"
+                onClick={closeNameDialog}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="result-name-dialog-confirm"
+                onClick={confirmAddToGallery}
+              >
+                Add to gallery
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -83,7 +83,7 @@ export default function HomePage({ onGenerate }: HomePageProps) {
 
           {/* Small example previews on the side */}
           <div className="create-examples">
-            <div className="create-examples-header">Example Outputs</div>
+            <div className="create-examples-header">Gallery</div>
             <div className="create-examples-grid">
               {SIDEBAR_EXAMPLES.map((item) => (
                 <div
@@ -106,7 +106,9 @@ export default function HomePage({ onGenerate }: HomePageProps) {
       )}
 
       {/* Gallery View */}
-      {view === "gallery" && <Gallery />}
+      {view === "gallery" && (
+        <Gallery onAddYours={() => setView("create")} />
+      )}
 
       {/* Modal for sidebar example clicks */}
       {selectedExample && (

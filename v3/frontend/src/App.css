@@ -762,6 +762,108 @@ body {
   text-decoration-color: #555;
 }
 
+.result-add-to-gallery {
+  padding: 6px 12px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: var(--green);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.result-add-to-gallery:hover {
+  background: #222;
+  border-color: #444;
+}
+
+.result-gallery-toast {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #1a2a1a;
+  border: 1px solid #2a3a2a;
+  border-radius: 6px;
+  color: var(--green);
+  font-size: 13px;
+}
+
+/* Add to gallery – in-app name dialog */
+.result-name-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9998;
+  padding: 24px;
+  animation: fadeIn 0.15s;
+}
+.result-name-dialog {
+  background: #111;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 320px;
+  max-width: 100%;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+}
+.result-name-dialog-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #ededed;
+  margin: 0 0 16px 0;
+}
+.result-name-dialog-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  margin-bottom: 20px;
+  background: #0a0a0a;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  color: #ededed;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.result-name-dialog-input:focus {
+  border-color: var(--green);
+}
+.result-name-dialog-input::placeholder {
+  color: #555;
+}
+.result-name-dialog-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+.result-name-dialog-cancel,
+.result-name-dialog-confirm {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.result-name-dialog-cancel {
+  background: transparent;
+  border: 1px solid #333;
+  color: #888;
+}
+.result-name-dialog-cancel:hover {
+  background: #1a1a1a;
+  color: #ccc;
+}
+.result-name-dialog-confirm {
+  background: var(--green);
+  border: 1px solid var(--green);
+  color: #000;
+}
+.result-name-dialog-confirm:hover {
+  filter: brightness(1.1);
+}
+
 /* ---- Splat viewer (3D canvas) ---- */
 
 .splat-container {
@@ -1170,6 +1272,58 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 200px;
+}
+
+.gallery-cell-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-style: dashed;
+  border-color: #2a2a2a;
+  transition: border-color 0.2s, background 0.2s;
+}
+.gallery-cell-add:hover {
+  border-color: #444;
+  background: #0f0f0f;
+}
+.gallery-add-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: #444;
+  transition: color 0.2s;
+}
+.gallery-cell-add:hover .gallery-add-content {
+  color: var(--green);
+}
+.gallery-add-icon {
+  font-size: 36px;
+  font-weight: 300;
+  line-height: 1;
+}
+.gallery-add-text {
+  font-size: 12px;
+  font-family: "Geist Mono", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.gallery-preview-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #111;
+}
+.gallery-placeholder-label {
+  font-size: 14px;
+  font-family: "Geist Mono", monospace;
+  color: #333;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
 
 .coming-soon {

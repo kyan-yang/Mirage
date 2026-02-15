@@ -1,12 +1,19 @@
 import { useEffect, useState } from "react";
+import type { GalleryItem } from "./Gallery";
 import SplatViewer from "./SplatViewer";
 
 interface GalleryModalProps {
-  item: {
-    name: string;
-    plyPath: string;
-  };
+  item: GalleryItem;
   onClose: () => void;
+}
+
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }
 
 export default function GalleryModal({ item, onClose }: GalleryModalProps) {
@@ -17,12 +24,34 @@ export default function GalleryModal({ item, onClose }: GalleryModalProps) {
   useEffect(() => {
     let cancelled = false;
 
+    if (item.plyDataBase64) {
+      try {
+        const data = base64ToUint8Array(item.plyDataBase64);
+        if (!cancelled) {
+          setPlyData(data);
+          setError(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError((err as Error).message || "Failed to decode model");
+        }
+      }
+      if (!cancelled) setLoading(false);
+      return;
+    }
+
+    if (!item.plyPath) {
+      setError("No model data");
+      setLoading(false);
+      return;
+    }
+
     (async () => {
       setLoading(true);
       setError(null);
 
       try {
-        const resp = await fetch(item.plyPath);
+        const resp = await fetch(item.plyPath!);
         if (!resp.ok) {
           throw new Error(`Failed to load PLY (${resp.status})`);
         }
@@ -40,7 +69,7 @@ export default function GalleryModal({ item, onClose }: GalleryModalProps) {
     return () => {
       cancelled = true;
     };
-  }, [item.plyPath]);
+  }, [item.plyPath, item.plyDataBase64]);
 
   // Close on Escape key
   useEffect(() => {
