@@ -367,7 +367,7 @@ export default function App() {
   const hasOutput = showProgress || result;
 
   return (
-    <div className="layout">
+    <div className={`layout${!hasOutput ? " centered" : ""}`}>
       <div className="pane pane-left">
         <div className="pane-left-inner">
           <div className="header">
