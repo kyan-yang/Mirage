@@ -157,6 +157,22 @@ def _default_hf_env(base_env: dict[str, str]) -> dict[str, str]:
     return env
 
 
+def _find_artifact_path(run_dir: Path, filename: str) -> Path | None:
+    # Some infer.py codepaths write directly to run_dir, others under a nested folder.
+    direct = run_dir / filename
+    if direct.exists():
+        return direct
+
+    nested_common = run_dir / "inputs" / filename
+    if nested_common.exists():
+        return nested_common
+
+    matches = sorted(p for p in run_dir.rglob(filename) if p.is_file())
+    if matches:
+        return matches[0]
+    return None
+
+
 @app.function(
     image=image,
     gpu="H100",
@@ -171,6 +187,8 @@ def generate_world(
     fps: int = 1,
     target_size: int = 518,
     confidence_percentile: float = 0.0,
+    save_gs: bool = True,
+    save_colmap: bool = False,
 ) -> dict[str, Any]:
     if image_payloads is None and video_bytes is None:
         raise ValueError("Provide either image_payloads or video_bytes")
@@ -212,7 +230,18 @@ def generate_world(
         "--confidence_percentile",
         str(confidence_percentile),
     ]
+    if save_gs:
+        infer_args.append("--save_gs")
+    if save_colmap:
+        infer_args.append("--save_colmap")
     _run(infer_args, cwd=REPO_DIR, env=_default_hf_env(os.environ))
+
+    gaussians_ply = _find_artifact_path(run_dir, "gaussians.ply")
+    if save_gs and gaussians_ply is None:
+        raise FileNotFoundError(
+            "infer.py finished but gaussians.ply was not produced. "
+            f"Run files: {_list_files(run_dir)}"
+        )
 
     artifacts_volume.commit()
     weights_volume.commit()
@@ -220,6 +249,7 @@ def generate_world(
     return {
         "run_id": run_id,
         "run_dir": str(run_dir),
+        "gaussians_ply": str(gaussians_ply.relative_to(run_dir)) if gaussians_ply else None,
         "files": _list_files(run_dir),
     }
 
@@ -269,6 +299,8 @@ def main(
     target_size: int = 518,
     confidence_percentile: float = 0.0,
     conf_threshold: float = 0.0,
+    save_gs: bool = True,
+    save_colmap: bool = False,
 ) -> None:
     if not input_dir and not video_path:
         raise ValueError("Provide --input-dir (multi-image) or --video-path")
@@ -307,6 +339,8 @@ def main(
         fps=fps,
         target_size=target_size,
         confidence_percentile=confidence_percentile if confidence_percentile != 0.0 else conf_threshold,
+        save_gs=save_gs,
+        save_colmap=save_colmap,
     )
     print(json.dumps(result, indent=2))
     print("Deploy viewer with: modal deploy modal/world-mirror.py")

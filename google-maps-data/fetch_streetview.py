@@ -258,9 +258,9 @@ def main():
     parser.add_argument("--radius", type=int, default=50)
     parser.add_argument("--fov", type=float, default=80, help="FOV in degrees (default: 80)")
     parser.add_argument("--pitch", type=float, default=0)
-    parser.add_argument("--num-views", type=int, default=8, help="Number of views around 360 (default: 8)")
+    parser.add_argument("--num-views", type=int, default=20, help="Number of views around 360 (default: 20)")
     parser.add_argument("--target-size", type=int, default=720, help="Output image size (default: 720)")
-    parser.add_argument("--output", type=str, default="./output")
+    parser.add_argument("--output", type=str, default="./scenes")
     parser.add_argument("--grid", type=int, default=0)
     parser.add_argument("--grid-spacing", type=float, default=50)
 
