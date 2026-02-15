@@ -876,7 +876,7 @@ def generate_world(
     image=light_image,
     volumes={"/data": artifacts_volume},
 )
-@modal.concurrent()
+@modal.concurrent(max_inputs=20)
 @modal.asgi_app()
 def viewer() -> FastAPI:
     api = FastAPI(title="Scenario Generator")
