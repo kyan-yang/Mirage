@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/debugpanel.tsx","./src/components/generatebutton.tsx","./src/components/header.tsx","./src/components/progresssteps.tsx","./src/components/promptinput.tsx","./src/components/resultviewer.tsx","./src/components/tabselector.tsx"],"version":"5.7.3"}
