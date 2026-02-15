@@ -6,17 +6,17 @@ export default defineConfig({
   server: {
     proxy: {
       "/generate": {
-        target: "https://kevinthomas--scenario-gen-viewer.modal.run",
+        target: "https://treehacks-26--scenario-gen-viewer.modal.run",
         changeOrigin: true,
         secure: true,
       },
       "/runs": {
-        target: "https://kevinthomas--scenario-gen-viewer.modal.run",
+        target: "https://treehacks-26--scenario-gen-viewer.modal.run",
         changeOrigin: true,
         secure: true,
       },
       "/health": {
-        target: "https://kevinthomas--scenario-gen-viewer.modal.run",
+        target: "https://treehacks-26--scenario-gen-viewer.modal.run",
         changeOrigin: true,
         secure: true,
       },
