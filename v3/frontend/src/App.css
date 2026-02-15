@@ -66,11 +66,15 @@ body {
 }
 
 .layout.centered .pane-left {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   border-right: none;
   max-width: 520px;
   width: 100%;
   padding: 48px;
   transition: all 0.4s ease;
+  flex: none;
 }
 
 .layout.centered .pane-right {
