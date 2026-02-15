@@ -33,7 +33,7 @@ from typing import Any
 from urllib.parse import quote
 
 import modal
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 APP_NAME = "world-mirror-v2"
@@ -48,49 +48,115 @@ SPLAT_VIEW_EXTS = {".splat", ".ply", ".ksplat"}
 WEB_PREVIEW_FILENAME = "gaussians_web_preview.ply"
 DEFAULT_WEB_MAX_SPLATS = 200_000
 
-SPLAT_VIEWER_HTML = """<!doctype html>
+SPLAT_VIEWER_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>World Mirror | __RUN_ID__</title>
   <style>
-    html, body, #viewer { width: 100%; height: 100%; margin: 0; background: #0a0c12; color: #f2f4f8; font-family: system-ui, sans-serif; }
-    #viewer { position: fixed; inset: 0; }
-    .hud { position: fixed; top: 12px; left: 12px; max-width: 500px; background: rgba(10,12,18,0.85); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 14px; font-size: 13px; backdrop-filter: blur(6px); z-index: 10; }
-    .hud a { color: #9dd0ff; text-decoration: none; }
-    .hud a:hover { text-decoration: underline; }
-    #status { margin-top: 6px; color: #aab; }
-    #status.error { color: #ffb0b0; }
-    code { color: #d9e8ff; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; background: linear-gradient(135deg, #0a0c12 0%, #1a1c2e 100%); color: #f2f4f8; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+
+    .container { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; padding: 40px; text-align: center; }
+
+    h1 { font-size: 42px; font-weight: 700; margin-bottom: 12px; background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+
+    .run-id { font-size: 14px; color: #9ca3af; font-family: 'SF Mono', Monaco, monospace; margin-bottom: 40px; padding: 8px 16px; background: rgba(255,255,255,0.05); border-radius: 8px; display: inline-block; }
+
+    .card { background: rgba(255,255,255,0.08); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 40px; max-width: 700px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+
+    h2 { font-size: 24px; margin-bottom: 20px; color: #e5e7eb; }
+
+    .viewer-options { display: flex; flex-direction: column; gap: 16px; margin: 32px 0; }
+
+    .option-btn { display: flex; align-items: center; gap: 16px; padding: 20px 24px; background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%); border: none; border-radius: 12px; color: white; font-size: 16px; font-weight: 600; cursor: pointer; text-decoration: none; transition: all 0.2s; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
+
+    .option-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4); }
+
+    .option-btn.secondary { background: rgba(255,255,255,0.1); box-shadow: none; }
+
+    .option-btn.secondary:hover { background: rgba(255,255,255,0.15); box-shadow: 0 4px 12px rgba(255,255,255,0.1); }
+
+    .icon { font-size: 28px; }
+
+    .option-text { flex: 1; text-align: left; }
+
+    .option-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+
+    .option-desc { font-size: 13px; opacity: 0.8; font-weight: 400; }
+
+    .desktop-apps { margin-top: 32px; padding-top: 32px; border-top: 1px solid rgba(255,255,255,0.1); }
+
+    .desktop-apps h3 { font-size: 18px; margin-bottom: 16px; color: #e5e7eb; }
+
+    .app-links { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+    .app-link { padding: 10px 18px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #60a5fa; text-decoration: none; font-size: 14px; transition: all 0.2s; }
+
+    .app-link:hover { background: rgba(255,255,255,0.1); border-color: #60a5fa; }
+
+    .modes { margin-top: 24px; font-size: 13px; color: #9ca3af; }
+
+    .modes a { color: #60a5fa; text-decoration: none; }
+
+    .modes a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
-  <div id="viewer"></div>
-  <div class="hud">
-    <div><strong>World Mirror</strong> &mdash; <code>__RUN_ID__</code></div>
-    <div style="margin-top:4px;">Drag to orbit, right-drag to pan, scroll to zoom</div>
-    <div style="margin-top:4px;">
-      <a href="__FILE_URL__">download</a> |
-      mode: __MODE_LABEL__ (<a href="__PREVIEW_URL__">preview</a> | <a href="__FULL_URL__">full</a>)
+  <div class="container">
+    <h1>🌍 World Mirror</h1>
+    <div class="run-id">__RUN_ID__</div>
+
+    <div class="card">
+      <h2>Choose Your Viewer</h2>
+      <p style="color: #9ca3af; margin-bottom: 20px; font-size: 14px;">
+        Web viewers can be slow for large splats. For best performance, use desktop apps!
+      </p>
+
+      <div class="viewer-options">
+        <a href="https://antimatter15.com/splat/?url=__FILE_URL_ENCODED__" target="_blank" class="option-btn">
+          <span class="icon">⚡</span>
+          <div class="option-text">
+            <div class="option-title">Fast Web Viewer</div>
+            <div class="option-desc">antimatter15/splat - optimized WebGL renderer</div>
+          </div>
+        </a>
+
+        <a href="https://playcanvas.com/supersplat/editor?assetUrl=__FILE_URL_ENCODED__" target="_blank" class="option-btn">
+          <span class="icon">🎮</span>
+          <div class="option-text">
+            <div class="option-title">SuperSplat Editor</div>
+            <div class="option-desc">Professional viewer with editing tools</div>
+          </div>
+        </a>
+
+        <a href="__FILE_URL__" class="option-btn secondary">
+          <span class="icon">⬇️</span>
+          <div class="option-text">
+            <div class="option-title">Download PLY</div>
+            <div class="option-desc">Use with desktop apps (recommended for large files)</div>
+          </div>
+        </a>
+      </div>
+
+      <div class="desktop-apps">
+        <h3>🖥️ Recommended Desktop Viewers</h3>
+        <div class="app-links">
+          <a href="https://github.com/antimatter15/splat" target="_blank" class="app-link">Splat (Mac/Win/Linux)</a>
+          <a href="https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/" target="_blank" class="app-link">SIBR Viewer</a>
+          <a href="https://github.com/playcanvas/supersplat" target="_blank" class="app-link">SuperSplat Desktop</a>
+          <a href="https://poly.cam/" target="_blank" class="app-link">Polycam</a>
+        </div>
+      </div>
+
+      <div class="modes">
+        Current mode: __MODE_LABEL__ |
+        <a href="__PREVIEW_URL__">fast preview</a> •
+        <a href="__FULL_URL__">full quality</a>
+      </div>
     </div>
-    <div id="status">Loading...</div>
   </div>
-  <script type="module">
-    const el = document.getElementById("status");
-    const setStatus = (msg, err) => { el.textContent = msg; el.classList.toggle("error", !!err); };
-    const root = document.getElementById("viewer");
-    root.style.width = window.innerWidth + "px";
-    root.style.height = window.innerHeight + "px";
-    try {
-      const GS = await import("https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/+esm");
-      const viewer = new GS.Viewer({ rootElement: root, useBuiltInControls: true, initialCameraPosition: [0, 1.2, 3.2], initialCameraLookAt: [0, 0, 0], gpuAcceleratedSort: true, sharedMemoryForWorkers: true });
-      await viewer.addSplatScene("__FILE_URL__", { showLoadingUI: true });
-      viewer.start();
-      setStatus("Ready.");
-      window.addEventListener("resize", () => { root.style.width = window.innerWidth + "px"; root.style.height = window.innerHeight + "px"; });
-    } catch (e) { setStatus("Failed: " + (e.message || e), true); console.error(e); }
-  </script>
 </body>
 </html>"""
 
@@ -491,7 +557,7 @@ def viewer() -> FastAPI:
         return FileResponse(target)
 
     @api.get("/runs/{run_id}/splat-viewer")
-    def splat_viewer(run_id: str, path: str = "", full: bool = False):
+    def splat_viewer(run_id: str, path: str = "", full: bool = False, request: Request = None):
         run_dir = (RUNS_DIR / run_id).resolve()
         if not run_dir.exists():
             raise HTTPException(404, "run not found")
@@ -518,6 +584,15 @@ def viewer() -> FastAPI:
 
         rel_path = str(chosen.relative_to(run_dir))
         file_url = f"/runs/{run_id}/file?path={quote(rel_path, safe='')}"
+
+        # Get the full absolute URL for external viewers
+        if request:
+            base_url = str(request.base_url).rstrip('/')
+            full_file_url = f"{base_url}{file_url}"
+        else:
+            full_file_url = file_url
+
+        file_url_encoded = quote(full_file_url, safe='')
         preview_url = f"/runs/{run_id}/splat-viewer?full=false"
         full_url = f"/runs/{run_id}/splat-viewer?full=true"
         mode_label = "full quality" if full else "fast preview"
@@ -526,6 +601,7 @@ def viewer() -> FastAPI:
             SPLAT_VIEWER_HTML
             .replace("__RUN_ID__", run_id)
             .replace("__FILE_URL__", file_url)
+            .replace("__FILE_URL_ENCODED__", file_url_encoded)
             .replace("__MODE_LABEL__", mode_label)
             .replace("__PREVIEW_URL__", preview_url)
             .replace("__FULL_URL__", full_url)
