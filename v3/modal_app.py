@@ -375,6 +375,7 @@ AUTONOMOUS DRIVING SPECIFIC REQUIREMENTS:
 - Camera should simulate a dashboard camera mounted on a car or a drone/gimbal view orbiting the scene (NO DRONE ROTORS VISIBLE)
 - TRY TO GET NORTH EAST SOUTH WEST AND TOP VIEWS OF THE ROAD
 - ORBIT AROUND obstacles and scenes - if there's a fallen tree, go AROUND it showing both sides, not just straight over/through it
+- STATIC SCENE ONLY: NO moving vehicles, NO pedestrians, NO animals. Scene is completely frozen and empty of movement.
 - Show the FULL ROAD ENVIRONMENT: road surface, lane markings, shoulders, curbs, traffic signs
 - MULTIPLE ANGLES: Start with a forward view, then smoothly pan around to show left side, right side, and rear views
 - Include a complete 360° orbit or multiple angle views of the key obstacles/features - go BEHIND objects to capture all perspectives
@@ -387,6 +388,7 @@ AUTONOMOUS DRIVING SPECIFIC REQUIREMENTS:
 HUMANOID ROBOT SPECIFIC REQUIREMENTS:
 - TRY TO GET NORTH EAST SOUTH WEST AND TOP VIEWs (NO DRONE ROTORS OR RECORDING DEVICE VISIBLE)
 - ORBIT AROUND objects completely - move behind furniture, around piles of items, showing all sides and angles
+- STATIC SCENE ONLY: NO people, NO pets, NO moving objects. Everything is frozen in place - only the camera moves.
 - Show MANIPULATION TARGETS: Clear views of objects that need to be grasped, moved, or interacted with
 - MULTIPLE ANGLES: Orbit around the scene showing front, sides, back, and top-down views of the workspace
 - Include a complete 360° orbit or multiple angle views of the objects and surfaces - camera should navigate AROUND obstacles, not just over/through them
@@ -408,11 +410,12 @@ CRITICAL RULES FOR GAUSSIAN SPLATTING RECONSTRUCTION:
 - TRY TO GET NORTH EAST SOUTH WEST AND TOP VIEWs
 - NO DRONE ROTORS: The camera must NEVER show drone rotors, propellers, or any part of the recording device in frame
 - ORBIT AROUND, NOT THROUGH: Camera should move AROUND objects and scenes to capture all sides. Go BEHIND obstacles and around corners, never just fly straight through or over them
+- COMPLETELY STATIC SCENE: The scene itself must be 100% FROZEN and STATIC. ONLY the camera moves. NO moving cars, NO people walking, NO animals, NO wind, NO swaying trees/grass, NO flowing water, NO moving objects whatsoever. Everything except the camera is COMPLETELY STILL like a frozen photograph.
 - PARALLAX: Ensure foreground objects shift significantly against the background to define depth.
 - TEXTURE: High-frequency detail on all surfaces (peeling paint, gravel, fabric weave, scuffs).
 - ZERO BLUR: Crystal clear, sharp focus from foreground to background; absolutely no motion blur.
 - LIGHTING: Flat, consistent global illumination. No moving shadows, no lens flares, no flickering.
-- GEOMETRIC STASIS: 100% static scene. Even 'gentle breezes' should be removed to ensure 1:1 pixel consistency across frames.
+- GEOMETRIC STASIS: Absolutely nothing in the scene moves. Even 'gentle breezes' must be removed. The entire world is frozen except for camera movement.
 - MULTI-VIEW: The camera must 'close the loop' or return to a previously seen angle to anchor the geometry.
 
 
