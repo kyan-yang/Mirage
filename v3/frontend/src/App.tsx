@@ -3,6 +3,7 @@ import TabSelector from "./components/TabSelector";
 import PromptInput from "./components/PromptInput";
 import GenerateButton from "./components/GenerateButton";
 import ProgressSteps from "./components/ProgressSteps";
+import VideoPreview from "./components/VideoPreview";
 import DebugPanel from "./components/DebugPanel";
 import ResultViewer from "./components/ResultViewer";
 
@@ -53,6 +54,7 @@ export default function App() {
 
   const [result, setResult] = useState<ResultData | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
+  const [videoCollapsed, setVideoCollapsed] = useState(false);
 
   // Abort controller for cancelling in-flight generation
   const abortRef = useRef<AbortController | null>(null);
@@ -80,6 +82,7 @@ export default function App() {
     setResult(null);
     setStreamError(null);
     setHasDebugData(false);
+    setVideoCollapsed(false);
     setSteps({
       expand: { state: "pending", detail: "" },
       video: { state: "pending", detail: "" },
@@ -210,6 +213,8 @@ export default function App() {
       setDebugData((prev) => ({ ...prev, runId, files }));
       setResult({ runId, gaussiansPly });
       setStreamError(null);
+      // Auto-collapse video preview so the 3D viewer gets focus
+      setVideoCollapsed(true);
     }
     if (step === "error") {
       const message = (data.message as string) || "Failed";
@@ -282,6 +287,14 @@ export default function App() {
               Retry
             </button>
           </div>
+        )}
+
+        {debugData.videoUrl && showProgress && (
+          <VideoPreview
+            videoUrl={debugData.videoUrl}
+            collapsed={videoCollapsed}
+            onToggleCollapse={() => setVideoCollapsed((c) => !c)}
+          />
         )}
 
         {debugMode && hasDebugData && (

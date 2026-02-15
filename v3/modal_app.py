@@ -266,19 +266,22 @@ def _find_artifact(run_dir: Path, filename: str) -> Path | None:
         return None
 
 
-def _safe_reload(volume: modal.Volume) -> bool:
-    """Safely reload volume, handling open file conflicts."""
-    try:
-        volume.reload()
-        return True
-    except Exception as e:
-        # Common issue: files are open (being served), can't reload
-        # This is OK - we'll work with stale data
-        if "open files" in str(e).lower():
-            return False
-        # Other errors might be more serious, but don't crash
-        print(f"Volume reload warning: {e}")
-        return False
+def _safe_reload(volume: modal.Volume, retries: int = 2) -> bool:
+    """Safely reload volume, handling open file conflicts with retries."""
+    for attempt in range(retries + 1):
+        try:
+            volume.reload()
+            return True
+        except Exception as e:
+            # Common issue: files are open (being served), can't reload
+            if "open files" in str(e).lower() and attempt < retries:
+                time.sleep(0.5)
+                continue
+            if attempt == retries:
+                print(f"Volume reload failed after {retries + 1} attempts: {e}")
+                return False
+            print(f"Volume reload warning (attempt {attempt + 1}): {e}")
+    return False
 
 
 def _validate_run_id(run_id: str) -> bool:
@@ -651,24 +654,32 @@ def viewer() -> FastAPI:
         if not _validate_run_id(run_id):
             raise HTTPException(400, "invalid run_id format")
 
-        # Don't reload here - this is the hot path that causes open file conflicts
-        # _safe_reload(artifacts_volume)
-
-        try:
+        def _resolve_target():
+            """Resolve run dir and target file, returning (target_path, error_stage)."""
             run_dir = (RUNS_DIR / run_id).resolve()
             if not run_dir.exists():
-                raise HTTPException(404, "run not found")
-
-            # Security: prevent path traversal
+                return None, "run"
             target = (run_dir / path).resolve()
             if not str(target).startswith(str(run_dir)):
                 raise HTTPException(400, "invalid path - path traversal detected")
+            if not target.exists() or not target.is_file():
+                return None, "file"
+            return target, None
 
-            if not target.exists():
+        try:
+            # Fast path: try without reload first
+            target, miss = _resolve_target()
+
+            # Reload-on-miss: volume may be stale if files were committed
+            # by generate_video / generate_world in another container
+            if target is None:
+                _safe_reload(artifacts_volume)
+                target, miss = _resolve_target()
+
+            if target is None:
+                if miss == "run":
+                    raise HTTPException(404, "run not found")
                 raise HTTPException(404, f"file not found: {path}")
-
-            if not target.is_file():
-                raise HTTPException(400, "path is not a file")
 
             # For large files, use FileResponse (streaming)
             # For small files, read into memory to avoid keeping files open
@@ -745,7 +756,9 @@ def viewer() -> FastAPI:
                 # Step 1: Expand prompt
                 yield f"data: {json.dumps({'step': 'expand_start'})}\n\n"
                 try:
-                    expanded = expand_prompt.remote(prompt, category)
+                    # Use .remote.aio() so we yield control to the event loop
+                    # and SSE events flush to the client in real-time
+                    expanded = await expand_prompt.remote.aio(prompt, category)
                     if not expanded or not expanded.strip():
                         raise ValueError("Prompt expansion returned empty result")
                     yield f"data: {json.dumps({'step': 'expand_done', 'expanded_prompt': expanded})}\n\n"
@@ -773,9 +786,12 @@ def viewer() -> FastAPI:
                 # Step 2: Generate video
                 yield f"data: {json.dumps({'step': 'video_start'})}\n\n"
                 try:
-                    video_bytes = generate_video.remote(expanded, run_id)
+                    video_bytes = await generate_video.remote.aio(expanded, run_id)
                     if not video_bytes or len(video_bytes) < 1000:
                         raise ValueError(f"Video generation produced invalid output ({len(video_bytes)} bytes)")
+                    # Reload volume so this container can see the video file
+                    # committed by the generate_video container
+                    _safe_reload(artifacts_volume)
                     yield f"data: {json.dumps({'step': 'video_done', 'run_id': run_id})}\n\n"
                 except Exception as e:
                     yield f"data: {json.dumps({'step': 'error', 'message': f'Video generation failed: {str(e)}'})}\n\n"
@@ -784,9 +800,12 @@ def viewer() -> FastAPI:
                 # Step 3: Generate 3D world
                 yield f"data: {json.dumps({'step': 'world_start'})}\n\n"
                 try:
-                    result = generate_world.remote(video_bytes, run_id)
+                    result = await generate_world.remote.aio(video_bytes, run_id)
                     if not result or "gaussians_ply" not in result:
                         raise ValueError("World generation did not produce expected output")
+                    # Reload volume so this container can see the PLY files
+                    # committed by the generate_world container
+                    _safe_reload(artifacts_volume)
                     yield f"data: {json.dumps({'step': 'world_done', **result})}\n\n"
                 except Exception as e:
                     yield f"data: {json.dumps({'step': 'error', 'message': f'World generation failed: {str(e)}'})}\n\n"
@@ -797,7 +816,15 @@ def viewer() -> FastAPI:
                 traceback.print_exc()
                 yield f"data: {json.dumps({'step': 'error', 'message': f'Unexpected error: {str(exc)}'})}\n\n"
 
-        return StreamingResponse(stream(), media_type="text/event-stream")
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # Disable nginx/proxy buffering
+            },
+        )
 
     return api
 
