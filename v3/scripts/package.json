@@ -1,0 +1,16 @@
+{
+  "name": "preview-generator",
+  "version": "1.0.0",
+  "description": "Generate preview videos from PLY files",
+  "main": "generate-preview.js",
+  "scripts": {
+    "preview": "node generate-preview.js",
+    "batch": "node batch-generate-previews.js"
+  },
+  "dependencies": {
+    "puppeteer": "^22.0.0"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
