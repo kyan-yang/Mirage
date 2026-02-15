@@ -394,7 +394,7 @@ export default function App() {
         <div className="pane-left-inner">
           <div className="header">
             <div className="header-row">
-              <h1>syn_splatt</h1>
+              <h1>Mirage</h1>
               {hasOutput && (
                 <button className="new-chat-btn" onClick={handleNewChat}>
                   + New

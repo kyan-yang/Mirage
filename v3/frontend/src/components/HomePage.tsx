@@ -49,7 +49,7 @@ export default function HomePage({ onGenerate }: HomePageProps) {
         <div className="create-view">
           <div className="create-content">
             <div className="create-header">
-              <h1>syn_splatt</h1>
+              <h1>Mirage</h1>
               <p>Generate realistic training environments for autonomous vehicles and humanoid robots.</p>
             </div>
 
