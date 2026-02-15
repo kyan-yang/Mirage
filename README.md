@@ -1,4 +1,4 @@
-# SynSplatt
+# Mirage
 Robots and self-driving cars need training data. SynSplatt synthesize 3D world-model training data covering hard-to-capture scenes - like driving in a hailstorm.
 
  - https://github.com/kyan-yang/treehacks-2026
