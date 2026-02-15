@@ -452,14 +452,22 @@ def generate_video(prompt: str, run_id: str) -> bytes:
         # Get video data from the Video object
         video_file = generated_video.video
 
-        # The Video object has video_bytes attribute with the actual video data
-        if hasattr(video_file, 'video_bytes') and video_file.video_bytes:
+        # Try save() method first - it's visible in the attributes
+        if hasattr(video_file, 'save'):
+            try:
+                video_file.save(str(video_path))
+            except Exception as save_err:
+                # If save() fails, try video_bytes
+                if hasattr(video_file, 'video_bytes') and video_file.video_bytes:
+                    video_path.write_bytes(video_file.video_bytes)
+                else:
+                    raise RuntimeError(f"save() failed: {save_err}, and video_bytes is not available")
+        elif hasattr(video_file, 'video_bytes') and video_file.video_bytes:
             video_path.write_bytes(video_file.video_bytes)
-        elif hasattr(video_file, 'save'):
-            # Use the save method if available
-            video_file.save(str(video_path))
         else:
-            raise RuntimeError(f"Video object missing video_bytes or save method. Type: {type(video_file)}")
+            raise RuntimeError(f"Video object missing both save method and video_bytes. Type: {type(video_file)}")
+    except RuntimeError:
+        raise
     except Exception as e:
         raise RuntimeError(f"Failed to download/save video: {e}")
 
