@@ -588,17 +588,17 @@ def expand_prompt(short_prompt: str) -> str:
 Turn this scenario into a detailed 8-second video prompt optimized for 3D reconstruction:
 
 CRITICAL RULES for good 3D reconstruction:
-- The scene must be COMPLETELY STATIC — no moving objects, no people walking, no cars driving, no wind blowing trees, no water flowing, no flickering lights
-- Camera moves SLOWLY through a frozen/still scene — smooth dolly or slow orbit
-- Everything in the scene is motionless as if time is frozen
-- Rich geometric detail: visible surfaces, textures, depth variation
-- Good consistent lighting (no dramatic shadows that change with camera)
-- Multiple overlapping viewpoints of the same objects (camera sees same things from different angles)
-- Photorealistic, high detail, sharp focus throughout
+- PRIMARY MOTION: Smooth, slow camera movement (gentle dolly, slow orbit, or steady tracking shot)
+- SCENE CONTENT: Rich geometric detail with visible surfaces, textures, and depth variation
+- MINIMAL OBJECT MOTION: Objects should be mostly stationary (no fast-moving vehicles, no walking people, no rapid movement)
+- Subtle environmental motion is OK: gentle breeze on leaves, slight water movement, ambient lighting - but nothing dramatic
+- CONSISTENT LIGHTING: Daylight or consistent artificial lighting (avoid rapid shadow changes or flickering)
+- CLEAR VISIBILITY: Photorealistic, high detail, sharp focus, good visibility throughout
+- MULTIPLE VIEWPOINTS: Camera path should see the same objects from different angles for reconstruction
 
 Scenario: {short_prompt}
 
-Respond with ONLY the video prompt, nothing else.""",
+Respond with ONLY the video prompt, nothing else. Make it vivid and specific, focusing on what the camera sees as it moves.""",
     )
     expanded = response.text.strip()
     print(f"Expanded prompt: {expanded}")
@@ -624,6 +624,7 @@ def generate_video(prompt: str, run_id: str) -> bytes:
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
     print(f"Submitting video generation request...")
+    print(f"Prompt for Veo: {prompt}")
     operation = client.models.generate_videos(
         model="veo-3.1-generate-preview",
         prompt=prompt,
@@ -640,7 +641,21 @@ def generate_video(prompt: str, run_id: str) -> bytes:
         elapsed += 10
         operation = client.operations.get(operation)
 
+    # Check for errors in the operation
+    if hasattr(operation, 'error') and operation.error:
+        error_msg = f"Veo video generation failed: {operation.error}"
+        print(error_msg)
+        raise RuntimeError(error_msg)
+
+    # Check if we got a valid response
+    if not hasattr(operation, 'response') or not operation.response:
+        raise RuntimeError("Veo operation completed but no response received")
+
+    if not hasattr(operation.response, 'generated_videos') or not operation.response.generated_videos:
+        raise RuntimeError("Veo operation completed but no videos were generated")
+
     generated_video = operation.response.generated_videos[0]
+    print(f"Video object received: {generated_video}")
 
     # Save to volume
     run_dir = RUNS_DIR / run_id
@@ -651,7 +666,13 @@ def generate_video(prompt: str, run_id: str) -> bytes:
     artifacts_volume.commit()
 
     video_bytes = video_path.read_bytes()
-    print(f"Video generated: {len(video_bytes)} bytes ({elapsed}s)")
+    video_size_mb = len(video_bytes) / (1024 * 1024)
+    print(f"Video generated: {len(video_bytes)} bytes ({video_size_mb:.2f} MB) in {elapsed}s")
+
+    # Warn if video is suspiciously small (likely blank/black)
+    if video_size_mb < 0.1:
+        print(f"WARNING: Video file is very small ({video_size_mb:.2f} MB) - may be blank or corrupted")
+
     return video_bytes
 
 
