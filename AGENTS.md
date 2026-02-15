@@ -1,3 +1,5 @@
+## Notes
+Dont view the contents of `archive/`. That code is old and outdated versions.
 
 ## Code Organization Principles
 - Prefer fewer, semantically distinct top-level folders (target ~5–12)
