@@ -1067,11 +1067,16 @@ def viewer() -> FastAPI:
             raise HTTPException(400, "invalid JSON in request body")
 
         prompt = body.get("prompt", "").strip()
+        category = body.get("category", "autonomous").strip()
+
         if not prompt:
             raise HTTPException(400, "prompt is required")
 
         if len(prompt) > 2000:
             raise HTTPException(400, "prompt too long (max 2000 characters)")
+
+        if category not in ["autonomous", "humanoid"]:
+            category = "autonomous"
 
         run_id = uuid.uuid4().hex[:12]
 
@@ -1080,7 +1085,7 @@ def viewer() -> FastAPI:
                 # Step 1: Expand prompt
                 yield f"data: {json.dumps({'step': 'expand_start'})}\n\n"
                 try:
-                    expanded = expand_prompt.remote(prompt)
+                    expanded = expand_prompt.remote(prompt, category)
                     if not expanded or not expanded.strip():
                         raise ValueError("Prompt expansion returned empty result")
                     yield f"data: {json.dumps({'step': 'expand_done', 'expanded_prompt': expanded})}\n\n"
@@ -1094,6 +1099,7 @@ def viewer() -> FastAPI:
                     _safe_mkdir(run_dir)
                     meta = {
                         "prompt": prompt,
+                        "category": category,
                         "expanded_prompt": expanded,
                         "created_at": time.time(),
                         "run_id": run_id
