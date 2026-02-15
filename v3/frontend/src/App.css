@@ -1,0 +1,445 @@
+@font-face {
+  font-family: "Geist Sans";
+  src: url("https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-sans/Geist-Regular.woff2")
+    format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Sans";
+  src: url("https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-sans/Geist-Medium.woff2")
+    format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Sans";
+  src: url("https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-sans/Geist-SemiBold.woff2")
+    format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/GeistMono-Regular.woff2")
+    format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --green: #7be660;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #000;
+  color: #ededed;
+  font-family: "Geist Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  min-height: 100vh;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ---- Split layout ---- */
+
+.layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.pane {
+  flex: 1;
+  min-width: 0;
+}
+
+.pane-left {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-right: 1px solid #111;
+  padding: 48px 48px 24px;
+  max-width: 520px;
+}
+
+.pane-left-inner {
+  display: flex;
+  flex-direction: column;
+}
+
+.pane-right {
+  flex: 1;
+  padding: 48px;
+  overflow-y: auto;
+}
+
+/* ---- Header (left pane) ---- */
+
+.header {
+  margin-bottom: 32px;
+}
+.header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  color: #ededed;
+  letter-spacing: -0.02em;
+}
+.header p {
+  color: #555;
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.debug-toggle {
+  align-self: flex-start;
+  background: transparent;
+  border: none;
+  color: #333;
+  font-size: 12px;
+  font-family: "Geist Mono", monospace;
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.debug-toggle:hover {
+  color: #666;
+}
+.debug-toggle.active {
+  color: var(--green);
+}
+
+/* ---- Tabs ---- */
+
+.tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #1a1a1a;
+}
+.tab {
+  padding: 8px 16px 8px 0;
+  background: transparent;
+  border: none;
+  color: #555;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s;
+  font-family: inherit;
+}
+.tab:hover {
+  color: #999;
+}
+.tab.active {
+  color: #ededed;
+  border-bottom-color: var(--green);
+}
+
+/* ---- Prompt input ---- */
+
+.input-area {
+  margin-bottom: 16px;
+}
+.input-area textarea {
+  width: 100%;
+  background: #0a0a0a;
+  border: 1px solid #1a1a1a;
+  border-radius: 8px;
+  color: #ededed;
+  font-size: 14px;
+  padding: 12px 14px;
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.input-area textarea:focus {
+  border-color: #333;
+}
+.input-area textarea::placeholder {
+  color: #444;
+}
+
+/* ---- Example chips ---- */
+
+.examples {
+  display: flex;
+  gap: 4px 0;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.examples button {
+  background: transparent;
+  border: none;
+  color: #444;
+  font-size: 13px;
+  padding: 3px 0;
+  margin-right: 14px;
+  cursor: pointer;
+  transition: color 0.15s;
+  font-family: inherit;
+  text-decoration: underline;
+  text-decoration-color: #1a1a1a;
+  text-underline-offset: 3px;
+}
+.examples button:hover {
+  color: #ededed;
+  text-decoration-color: #555;
+}
+
+/* ---- Generate button ---- */
+
+.generate-btn {
+  width: 100%;
+  padding: 0;
+  height: 40px;
+  font-size: 14px;
+  font-weight: 500;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  background: #ededed;
+  color: #000;
+  transition: background 0.15s;
+  font-family: inherit;
+}
+.generate-btn:hover {
+  background: #fff;
+}
+.generate-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* ---- Empty state (right pane) ---- */
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 300px;
+}
+.empty-state p {
+  color: #333;
+  font-size: 14px;
+}
+
+/* ---- Progress steps ---- */
+
+.progress {
+  margin-bottom: 32px;
+}
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-left: 2px solid #1a1a1a;
+  padding-left: 14px;
+  transition: border-color 0.2s;
+}
+.step.active {
+  border-left-color: #ededed;
+}
+.step.done {
+  border-left-color: var(--green);
+}
+.step.error {
+  border-left-color: #ee0000;
+}
+.step-icon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+  color: #333;
+  font-family: "Geist Mono", monospace;
+}
+.step.active .step-icon {
+  color: #ededed;
+}
+.step.done .step-icon {
+  color: var(--green);
+}
+.step.error .step-icon {
+  color: #ee0000;
+}
+.step-text {
+  font-size: 13px;
+  color: #555;
+}
+.step.active .step-text {
+  color: #ededed;
+}
+.step.done .step-text {
+  color: #888;
+}
+.step-detail {
+  font-size: 12px;
+  color: #444;
+  margin-top: 2px;
+  font-family: "Geist Mono", monospace;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid #222;
+  border-top-color: #ededed;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* ---- Debug panel ---- */
+
+.debug-section {
+  margin-top: 8px;
+  display: none;
+}
+.debug-section.active {
+  display: block;
+}
+.debug-panel {
+  padding: 0 0 20px;
+  margin-bottom: 0;
+}
+.debug-panel + .debug-panel {
+  border-top: 1px solid #111;
+  padding-top: 20px;
+}
+.debug-panel h3 {
+  color: #444;
+  font-size: 11px;
+  font-weight: 500;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-family: "Geist Mono", monospace;
+}
+.debug-panel .content {
+  color: #777;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: "Geist Mono", monospace;
+}
+.debug-panel video {
+  width: 100%;
+  max-width: 600px;
+  border-radius: 6px;
+  margin-top: 8px;
+}
+.file-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 4px;
+  margin-top: 8px;
+}
+.file-item {
+  display: block;
+  padding: 4px 0;
+  background: transparent;
+  border: none;
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  color: #555;
+  word-break: break-all;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.file-item:hover {
+  color: #ededed;
+}
+.file-category {
+  margin-top: 14px;
+}
+.file-category h4 {
+  color: #444;
+  font-size: 11px;
+  margin-bottom: 6px;
+  font-weight: 500;
+  font-family: "Geist Mono", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ---- Result viewer ---- */
+
+.result {
+  display: none;
+}
+.result.active {
+  display: block;
+}
+.result .viewer-frame {
+  width: 100%;
+  height: 500px;
+  border: 1px solid #1a1a1a;
+  border-radius: 8px;
+  background: #000;
+}
+.result-links {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.result-links a {
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: #555;
+  text-decoration: underline;
+  text-decoration-color: #222;
+  text-underline-offset: 3px;
+  font-size: 13px;
+  transition: color 0.15s;
+}
+.result-links a:hover {
+  color: #ededed;
+  text-decoration-color: #555;
+}
+
+/* ---- Responsive: stack on small screens ---- */
+
+@media (max-width: 768px) {
+  .layout {
+    flex-direction: column;
+  }
+  .pane-left {
+    max-width: none;
+    border-right: none;
+    border-bottom: 1px solid #111;
+    padding: 32px 20px 24px;
+  }
+  .pane-right {
+    padding: 24px 20px 48px;
+  }
+}
