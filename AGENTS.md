@@ -23,3 +23,9 @@ Dont view the contents of `archive/`. That code is old and outdated versions.
 - Describe what each function/module receives, does, and returns in prose.
 - Name concrete files, functions, and types for consistency, but do not write their implementations.
 - Diagrams (architecture, file trees) are fine — they are visual aids, not code.
+
+# folder structure:
+- google maps data: has scripts to take a google maps location and extract 360 panoramic pictures from it with degrees / etc
+- /modal: world-mirror.py generates a world model ply file but has messy code
+- /v2: same thing as /modal but cleaner code and has a dashboard to see all results easier
+- /v3: has a new pipeling: you type ina prompt, "tree falled on road", gemini creates a video, then it goes through world model to create a world model then displays it on a splat viewer
