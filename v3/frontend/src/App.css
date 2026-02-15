@@ -32,18 +32,7 @@
 }
 
 :root {
-  --green: #62de61;
-  --green-light: #ddffdc;
-  --green-dim: #2a5c2a;
-  --green-subtle: #1a3a1a;
-  --bg: #000;
-  --surface: #0a0a0a;
-  --border: #1a1a1a;
-  --border-light: #222;
-  --text: #ddffdc;
-  --text-secondary: #6b8a6b;
-  --text-muted: #3d5c3d;
-  --error: #ee0000;
+  --green: #7be660;
 }
 
 * {
@@ -53,8 +42,8 @@
 }
 
 body {
-  background: var(--bg);
-  color: var(--text);
+  background: #000;
+  color: #ededed;
   font-family: "Geist Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
   min-height: 100vh;
@@ -78,7 +67,7 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid #111;
   padding: 48px 48px 24px;
   max-width: 520px;
 }
@@ -102,11 +91,11 @@ body {
 .header h1 {
   font-size: 24px;
   font-weight: 600;
-  color: var(--green-light);
+  color: #ededed;
   letter-spacing: -0.02em;
 }
 .header p {
-  color: var(--text-muted);
+  color: #555;
   margin-top: 6px;
   font-size: 14px;
   line-height: 1.5;
@@ -116,7 +105,7 @@ body {
   align-self: flex-start;
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: #333;
   font-size: 12px;
   font-family: "Geist Mono", monospace;
   padding: 0;
@@ -124,7 +113,7 @@ body {
   transition: color 0.15s;
 }
 .debug-toggle:hover {
-  color: var(--text-secondary);
+  color: #666;
 }
 .debug-toggle.active {
   color: var(--green);
@@ -136,13 +125,13 @@ body {
   display: flex;
   gap: 0;
   margin-bottom: 20px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid #1a1a1a;
 }
 .tab {
   padding: 8px 16px 8px 0;
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: #555;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -152,10 +141,10 @@ body {
   font-family: inherit;
 }
 .tab:hover {
-  color: var(--text-secondary);
+  color: #999;
 }
 .tab.active {
-  color: var(--green-light);
+  color: #ededed;
   border-bottom-color: var(--green);
 }
 
@@ -166,10 +155,10 @@ body {
 }
 .input-area textarea {
   width: 100%;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: #0a0a0a;
+  border: 1px solid #1a1a1a;
   border-radius: 8px;
-  color: var(--green-light);
+  color: #ededed;
   font-size: 14px;
   padding: 12px 14px;
   resize: vertical;
@@ -179,10 +168,10 @@ body {
   transition: border-color 0.15s;
 }
 .input-area textarea:focus {
-  border-color: var(--green-dim);
+  border-color: #333;
 }
 .input-area textarea::placeholder {
-  color: var(--text-muted);
+  color: #444;
 }
 
 /* ---- Example chips ---- */
@@ -196,7 +185,7 @@ body {
 .examples button {
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: #444;
   font-size: 13px;
   padding: 3px 0;
   margin-right: 14px;
@@ -204,12 +193,12 @@ body {
   transition: color 0.15s;
   font-family: inherit;
   text-decoration: underline;
-  text-decoration-color: var(--border);
+  text-decoration-color: #1a1a1a;
   text-underline-offset: 3px;
 }
 .examples button:hover {
-  color: var(--green-light);
-  text-decoration-color: var(--green-dim);
+  color: #ededed;
+  text-decoration-color: #555;
 }
 
 /* ---- Generate button ---- */
@@ -225,11 +214,11 @@ body {
   cursor: pointer;
   background: var(--green);
   color: #000;
-  transition: background 0.15s;
+  transition: opacity 0.15s;
   font-family: inherit;
 }
 .generate-btn:hover {
-  background: #80ee64;
+  opacity: 0.9;
 }
 .generate-btn:disabled {
   opacity: 0.3;
@@ -246,7 +235,7 @@ body {
   min-height: 300px;
 }
 .empty-state p {
-  color: var(--text-muted);
+  color: #333;
   font-size: 14px;
 }
 
@@ -260,18 +249,18 @@ body {
   align-items: flex-start;
   gap: 12px;
   padding: 10px 0;
-  border-left: 2px solid var(--border);
+  border-left: 2px solid #1a1a1a;
   padding-left: 14px;
   transition: border-color 0.2s;
 }
 .step.active {
-  border-left-color: var(--green);
+  border-left-color: #ededed;
 }
 .step.done {
-  border-left-color: var(--green-dim);
+  border-left-color: var(--green);
 }
 .step.error {
-  border-left-color: var(--error);
+  border-left-color: #ee0000;
 }
 .step-icon {
   width: 18px;
@@ -281,31 +270,31 @@ body {
   justify-content: center;
   font-size: 12px;
   flex-shrink: 0;
-  color: var(--text-muted);
+  color: #333;
   font-family: "Geist Mono", monospace;
 }
 .step.active .step-icon {
-  color: var(--green);
+  color: #ededed;
 }
 .step.done .step-icon {
-  color: var(--green-dim);
+  color: var(--green);
 }
 .step.error .step-icon {
-  color: var(--error);
+  color: #ee0000;
 }
 .step-text {
   font-size: 13px;
-  color: var(--text-muted);
+  color: #555;
 }
 .step.active .step-text {
-  color: var(--green-light);
+  color: #ededed;
 }
 .step.done .step-text {
-  color: var(--text-secondary);
+  color: #888;
 }
 .step-detail {
   font-size: 12px;
-  color: var(--text-muted);
+  color: #444;
   margin-top: 2px;
   font-family: "Geist Mono", monospace;
 }
@@ -319,8 +308,8 @@ body {
   display: inline-block;
   width: 14px;
   height: 14px;
-  border: 1.5px solid var(--green-subtle);
-  border-top-color: var(--green);
+  border: 1.5px solid #222;
+  border-top-color: #ededed;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
@@ -339,11 +328,11 @@ body {
   margin-bottom: 0;
 }
 .debug-panel + .debug-panel {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid #111;
   padding-top: 20px;
 }
 .debug-panel h3 {
-  color: var(--text-muted);
+  color: #444;
   font-size: 11px;
   font-weight: 500;
   margin-bottom: 8px;
@@ -352,7 +341,7 @@ body {
   font-family: "Geist Mono", monospace;
 }
 .debug-panel .content {
-  color: var(--text-secondary);
+  color: #777;
   font-size: 13px;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -380,19 +369,19 @@ body {
   border: none;
   font-family: "Geist Mono", monospace;
   font-size: 11px;
-  color: var(--text-muted);
+  color: #555;
   word-break: break-all;
   text-decoration: none;
   transition: color 0.15s;
 }
 .file-item:hover {
-  color: var(--green-light);
+  color: #ededed;
 }
 .file-category {
   margin-top: 14px;
 }
 .file-category h4 {
-  color: var(--text-muted);
+  color: #444;
   font-size: 11px;
   margin-bottom: 6px;
   font-weight: 500;
@@ -412,9 +401,9 @@ body {
 .result .viewer-frame {
   width: 100%;
   height: 500px;
-  border: 1px solid var(--border);
+  border: 1px solid #1a1a1a;
   border-radius: 8px;
-  background: var(--bg);
+  background: #000;
 }
 .result-links {
   display: flex;
@@ -426,16 +415,16 @@ body {
   padding: 0;
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: #555;
   text-decoration: underline;
-  text-decoration-color: var(--border);
+  text-decoration-color: #222;
   text-underline-offset: 3px;
   font-size: 13px;
   transition: color 0.15s;
 }
 .result-links a:hover {
-  color: var(--green-light);
-  text-decoration-color: var(--green-dim);
+  color: #ededed;
+  text-decoration-color: #555;
 }
 
 /* ---- Responsive: stack on small screens ---- */
@@ -447,7 +436,7 @@ body {
   .pane-left {
     max-width: none;
     border-right: none;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid #111;
     padding: 32px 20px 24px;
   }
   .pane-right {
