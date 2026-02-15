@@ -680,7 +680,7 @@ def _read_file_safe(file_path: Path, max_size_mb: int = 500) -> bytes:
     secrets=[modal.Secret.from_name("gemini-api-key")],
     timeout=60,
 )
-def expand_prompt(short_prompt: str) -> str:
+def expand_prompt(short_prompt: str, category: str = "autonomous") -> str:
     """Use Gemini to expand a short scenario into a video prompt optimized for 3D reconstruction."""
     from google import genai
 
@@ -690,9 +690,34 @@ def expand_prompt(short_prompt: str) -> str:
 
     client = genai.Client(api_key=api_key)
 
+    # Domain-specific instructions
+    if category == "autonomous":
+        domain_instructions = """
+AUTONOMOUS DRIVING SPECIFIC REQUIREMENTS:
+- Camera should simulate a dashboard camera mounted on a car or a drone/gimbal view orbiting the scene
+- Show the FULL ROAD ENVIRONMENT: road surface, lane markings, shoulders, curbs, traffic signs
+- MULTIPLE ANGLES: Start with a forward view, then smoothly pan around to show left side, right side, and rear views
+- Include a complete 360° orbit or multiple angle views of the key obstacles/features
+- Show DEPTH and DISTANCE: Include foreground, mid-ground, and background elements
+- Capture the CONTEXT: surrounding environment (buildings, trees, terrain on both sides of road)
+- LIGHTING CONDITIONS: Clearly establish time of day and weather conditions (sunny, overcast, night, fog, rain, snow)
+- Ground-level AND elevated views: Include both driver's perspective and bird's eye overview if possible"""
+    else:  # humanoid
+        domain_instructions = """
+HUMANOID ROBOT SPECIFIC REQUIREMENTS:
+- Camera should simulate a robot's head-mounted camera or an external observer documenting the scene
+- Show MANIPULATION TARGETS: Clear views of objects that need to be grasped, moved, or interacted with
+- MULTIPLE ANGLES: Orbit around the scene showing front, sides, and top-down views of the workspace
+- Include a complete 360° orbit or multiple angle views of the objects and surfaces
+- Show SPATIAL RELATIONSHIPS: How objects relate to each other, distances between items, surface heights
+- SURFACE DETAILS: Capture textures, materials, and physical properties (wet/dry, smooth/rough, rigid/soft)
+- WORKSPACE CONTEXT: Show the full environment - counters, tables, floors, walls, nearby furniture
+- SCALE REFERENCE: Include views that show relative sizes of objects and spaces
+- LIGHTING: Consistent indoor lighting showing all details clearly, avoiding harsh shadows"""
+
     response = client.models.generate_content(
         model="gemini-2.0-flash",
-        contents=f"""You are an expert at creating prompts for AI video generation where the output video will be used for 3D Gaussian Splatting reconstruction.
+        contents=f"""You are an expert at creating prompts for AI video generation where the output video will be used for 3D Gaussian Splatting reconstruction and training AI models.
 
 Turn this scenario into a detailed 8-second video prompt optimized for 3D reconstruction:
 
@@ -705,12 +730,14 @@ CRITICAL RULES for good 3D reconstruction:
 - CLEAR VISIBILITY: Photorealistic, high detail, sharp focus, good visibility throughout
 - MULTIPLE VIEWPOINTS: Camera path should see the same objects from different angles for reconstruction
 
+{domain_instructions}
+
 Scenario: {short_prompt}
 
-Respond with ONLY the video prompt, nothing else. Make it vivid and specific, focusing on what the camera sees as it moves.""",
+Respond with ONLY the video prompt, nothing else. Make it vivid and specific, focusing on what the camera sees as it moves. ENSURE multiple camera angles are explicitly described.""",
     )
     expanded = response.text.strip()
-    print(f"Expanded prompt: {expanded}")
+    print(f"Expanded prompt ({category}): {expanded}")
     return expanded
 
 
