@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { GalleryItem } from "./Gallery";
 import SplatViewer from "./SplatViewer";
 
@@ -80,7 +81,7 @@ export default function GalleryModal({ item, onClose }: GalleryModalProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div className="gallery-modal-overlay" onClick={onClose}>
       <div className="gallery-modal-content" onClick={(e) => e.stopPropagation()}>
         <button className="gallery-modal-close" onClick={onClose}>
@@ -115,6 +116,7 @@ export default function GalleryModal({ item, onClose }: GalleryModalProps) {
           Press ESC to close
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

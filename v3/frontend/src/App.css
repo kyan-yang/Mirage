@@ -1038,6 +1038,7 @@ body {
   flex-direction: column;
   position: relative;
   overflow: hidden;
+  z-index: 0;
 }
 
 .home-bg-video {
@@ -1048,6 +1049,7 @@ body {
   height: 100%;
   object-fit: cover;
   z-index: 0;
+  pointer-events: none;
 }
 
 .home-bg-overlay {
@@ -1058,6 +1060,7 @@ body {
   height: 100%;
   background: rgba(0, 0, 0, 0.8);
   z-index: 0;
+  pointer-events: none;
 }
 
 .home-page > *:not(.home-bg-video):not(.home-bg-overlay) {
