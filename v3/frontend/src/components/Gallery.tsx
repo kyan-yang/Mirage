@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { getSavedGalleryItems } from "../galleryStore";
+import { STATIC_MODELS } from "../models";
 import GalleryModal from "./GalleryModal";
 
 export interface GalleryItem {
@@ -9,14 +10,6 @@ export interface GalleryItem {
   plyDataBase64?: string;
   id?: string;
 }
-
-const STATIC_ITEMS: GalleryItem[] = [
-  { name: "Auditorium", previewImage: "/previews/Auditorium.png", plyPath: "/models/Auditorium.ply" },
-  { name: "Chips", previewImage: "/previews/Chips.png", plyPath: "/models/Chips.ply" },
-  { name: "Timer", previewImage: "/previews/Timer.png", plyPath: "/models/Timer.ply" },
-  { name: "Tree", previewImage: "/previews/Tree.png", plyPath: "/models/Tree.ply" },
-  { name: "TreeHacks", previewImage: "/previews/TreeHacks.png", plyPath: "/models/Treehacks.ply" },
-];
 
 const ADD_YOURS_SLOTS = 3;
 
@@ -38,7 +31,7 @@ export default function Gallery({ onAddYours }: GalleryProps) {
     []
   );
 
-  const allItems = [...STATIC_ITEMS, ...savedItems];
+  const allItems = [...STATIC_MODELS, ...savedItems];
 
   return (
     <>

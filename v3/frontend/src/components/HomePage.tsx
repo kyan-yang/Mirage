@@ -4,6 +4,7 @@ import GalleryModal from "./GalleryModal";
 import TabSelector from "./TabSelector";
 import PromptInput from "./PromptInput";
 import GenerateButton from "./GenerateButton";
+import { STATIC_MODELS } from "../models";
 import type { Category } from "../App";
 
 interface HomePageProps {
@@ -12,19 +13,14 @@ interface HomePageProps {
 
 type PageView = "create" | "gallery";
 
-const SIDEBAR_EXAMPLES = [
-  { name: "Auditorium", previewImage: "/previews/Auditorium.png", plyPath: "/models/Auditorium.ply" },
-  { name: "Chips", previewImage: "/previews/Chips.png", plyPath: "/models/Chips.ply" },
-  { name: "Timer", previewImage: "/previews/Timer.png", plyPath: "/models/Timer.ply" },
-];
-
 export default function HomePage({ onGenerate }: HomePageProps) {
   const [view, setView] = useState<PageView>("create");
   const [category, setCategory] = useState<Category>("autonomous");
   const [prompt, setPrompt] = useState("");
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [debugMode, setDebugMode] = useState(false);
-  const [selectedExample, setSelectedExample] = useState<typeof SIDEBAR_EXAMPLES[number] | null>(null);
+  const sidebarExamples = STATIC_MODELS.slice(0, 3);
+  const [selectedExample, setSelectedExample] = useState<typeof STATIC_MODELS[number] | null>(null);
 
   const handleGenerate = () => {
     onGenerate(prompt, category, uploadFiles);
@@ -85,7 +81,7 @@ export default function HomePage({ onGenerate }: HomePageProps) {
           <div className="create-examples">
             <div className="create-examples-header">Gallery</div>
             <div className="create-examples-grid">
-              {SIDEBAR_EXAMPLES.map((item) => (
+              {sidebarExamples.map((item) => (
                 <div
                   key={item.name}
                   className="create-example-item clickable"

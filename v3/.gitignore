@@ -1,5 +1,6 @@
 # Large PLY model files
 frontend/public/models/
 
-# Preview videos/images (can be regenerated)
-frontend/public/previews/
+# Preview directory (but keep PNGs)
+frontend/public/previews/*
+!frontend/public/previews/*.png
