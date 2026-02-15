@@ -175,7 +175,7 @@ gpu_image = (
 )
 
 light_image = modal.Image.debian_slim(python_version="3.11").pip_install(
-    "google-genai", "fastapi", "uvicorn", "python-multipart",
+    "google-genai", "fastapi", "uvicorn", "python-multipart", "requests",
 )
 
 # ---------------------------------------------------------------------------
@@ -444,8 +444,32 @@ def generate_video(prompt: str, run_id: str) -> bytes:
     video_path = run_dir / "generated_video.mp4"
 
     try:
-        client.files.download(file=generated_video.video)
-        generated_video.video.save(str(video_path))
+        # Download video file from Google's servers
+        # The video object should have the file data
+        video_file = generated_video.video
+
+        # Try different methods to get the video data
+        if hasattr(video_file, 'read'):
+            # If the file object has a read method, use it
+            video_data = video_file.read()
+            video_path.write_bytes(video_data)
+        elif hasattr(video_file, 'uri'):
+            # If we have a URI, download from it
+            import requests
+            response = requests.get(video_file.uri)
+            response.raise_for_status()
+            video_path.write_bytes(response.content)
+        elif hasattr(video_file, 'name'):
+            # Try to get the file by name and download
+            file_obj = client.files.get(name=video_file.name)
+            if hasattr(file_obj, 'read'):
+                video_path.write_bytes(file_obj.read())
+            else:
+                # Last resort: use download method
+                video_data = client.files.download(name=video_file.name)
+                video_path.write_bytes(video_data)
+        else:
+            raise RuntimeError(f"Unknown video file format: {type(video_file)}")
     except Exception as e:
         raise RuntimeError(f"Failed to download/save video: {e}")
 
