@@ -28,6 +28,17 @@ export default function HomePage({ onGenerate }: HomePageProps) {
 
   return (
     <div className="home-page">
+      {/* Video background */}
+      <video
+        className="home-bg-video"
+        src="/supersplat.mov"
+        autoPlay
+        loop
+        muted
+        playsInline
+      />
+      <div className="home-bg-overlay" />
+
       {/* Top Navigation */}
       <div className="home-nav">
         <button

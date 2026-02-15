@@ -1036,6 +1036,33 @@ body {
   background: #000;
   display: flex;
   flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+.home-bg-video {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+.home-bg-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 0;
+}
+
+.home-page > *:not(.home-bg-video):not(.home-bg-overlay) {
+  position: relative;
+  z-index: 1;
 }
 
 /* Navigation Tabs */
@@ -1045,7 +1072,7 @@ body {
   gap: 0;
   border-bottom: 1px solid #1a1a1a;
   padding: 24px 0 0;
-  background: #000;
+  background: transparent;
 }
 
 .home-nav-btn {
