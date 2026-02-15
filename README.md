@@ -1,75 +1,28 @@
-# HunyuanWorld on Modal
+# SynSplatt
+Robots and self-driving cars need training data. SynSplatt synthesize 3D world-model training data covering hard-to-capture scenes - like driving in a hailstorm.
 
-## Model choice for agents/segmentation
+ - https://github.com/kyan-yang/treehacks-2026
+ - Try it at vercel
+ - demo video
 
-If you need a persistent 3D world representation (mesh/assets you can inspect, segment, and attach agents to), start with **HunyuanWorld-1.0**.
+Created at TreeHacks 2026 by Shrey Birmiwal, Kyan Yang, Kevin Thomas, Adi Prasad
 
-Use **HunyuanWorld-1.5 (WorldPlay)** when you primarily want interactive world-model video generation. It is stronger for real-time playable dynamics, but its default outputs are not as directly agent-friendly as an explicit 3D scene asset pipeline.
+## Motivation
 
-## Files in this repo
+ - The future of AI-like robots and self-driving cars requires lots and lots of data.
+ - Current datasets are extensive, but they cover common senarios, like driving in a sunny or cold day.
+ - They **overrepresent positive cases and underrepresent edge cases** and failure cases, where things could actually go wrong.
+ - This leads us to believe that simulations of world models will be key to simulating edge cases, like driving when a tree hits the ground, to train more robust and safe models.
+ - Conviction is furthered by Waymo beginning similar research, [seen here](https://x.com/Waymo/status/2019804616746029508?s=20)
 
-- `/Users/shreybirmiwal/treehacks-2026/modal_hunyuanworld.py`: Modal app for generating worlds with HunyuanWorld-1.0 and serving artifacts.
+## What did we do?
 
-## Prereqs
+ - Users will create prompts, such as **"Generate a road that had a tree break and fall down on"**, a unique scenario that would be unlikely to be present in current datasets, but very valid and important to train a model on.
+ - An LLM hosted on Google Cloud will expand the user prompt
+ - Veo3 model hosted on Google Cloud will generate a video of the simulated road
+ - Modal hosting multiple h100 GPUs will run an open source world model / gaussian splatting algorithm to create a 3d representation of this world
 
-1. Install Modal locally:
+## Future work (half completed at hackathon)
 
-```bash
-pip install modal
-python3 -m modal setup
-```
-
-2. Create a Modal secret named `huggingface-token`:
-
-```bash
-modal secret create huggingface-token HUGGINGFACE_TOKEN=hf_xxx
-```
-
-## Environment variables (.env)
-
-`.env` files are **not committed** (they are in `.gitignore`). You need to create them locally where required.
-
-**v3 frontend** (`v3/frontend/`):
-
-- Create `v3/frontend/.env.development` and/or `v3/frontend/.env.production` with:
-
-  ```bash
-  VITE_API_URL=https://your-modal-app--viewer.modal.run
-  ```
-
-  Replace the URL with your deployed Modal viewer endpoint. The frontend uses this to talk to the backend API.
-
-**Other env usage:** Backend/Modal code reads API keys from the environment (e.g. `GEMINI_API_KEY`, `HUGGINGFACE_TOKEN`). Use Modal secrets or your shell env; no `.env` in the repo.
-
-## Run a generation job
-
-Text-to-world:
-
-```bash
-modal run /Users/shreybirmiwal/treehacks-2026/modal_hunyuanworld.py::main --prompt "an alpine valley at sunrise" --classes outdoor
-```
-
-Image-to-world:
-
-```bash
-modal run /Users/shreybirmiwal/treehacks-2026/modal_hunyuanworld.py::main --image-path /absolute/path/to/input.png --classes outdoor --labels-fg1 rocks,trees --labels-fg2 mountains,clouds
-```
-
-## Deploy artifact viewer
-
-```bash
-modal deploy /Users/shreybirmiwal/treehacks-2026/modal_hunyuanworld.py
-```
-
-The app exposes:
-
-- `GET /` list run IDs
-- `GET /runs/{run_id}` list files for a run
-- `GET /runs/{run_id}/file?path=modelviewer.html` open viewer
-- `GET /runs/{run_id}/file?path=<artifact-path>` download any artifact
-
-## Notes
-
-- This setup uses `A100-80GB` for headroom. You can downgrade later if memory allows.
-- First build can take a while due to model dependencies.
-- If you need a world-state API for autonomous agents, the next step is adding a post-process stage that normalizes generated artifacts into a scene graph (entities, transforms, semantic tags).
+ - Physics + simulations in 3D generated space
+ - Segmentation of objects in 3d representation space (enabling the moving of objects in the space, identification, and training)
