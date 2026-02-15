@@ -4,3 +4,5 @@ __pycache__/
 .env.*
 **/.env.*
 google-maps-data/output*/
+node_modules/
+.next/
