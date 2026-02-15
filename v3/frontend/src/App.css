@@ -71,9 +71,6 @@ body {
   flex: 0 0 auto;
   min-height: auto;
   justify-content: center;
-  /* DEBUG: temporary visible border */
-  border: 2px solid red;
-  background: rgba(255, 0, 0, 0.1);
 }
 
 .layout.centered .pane-right {
