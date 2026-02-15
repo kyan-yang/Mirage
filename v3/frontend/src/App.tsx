@@ -241,7 +241,7 @@ export default function App() {
           <div className="header">
             <h1>Synthetic Training Environments</h1>
             <p>
-              Generate realistic 3D worlds for autonomous vehicles and humanoid robots.
+              Generate realistic training environments for autonomous vehicles and humanoid robots.
             </p>
           </div>
           <TabSelector category={category} onSelect={setCategory} />
