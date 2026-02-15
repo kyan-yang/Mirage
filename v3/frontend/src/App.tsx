@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import TabSelector from "./components/TabSelector";
 import PromptInput from "./components/PromptInput";
-import ImageUpload from "./components/ImageUpload";
 import GenerateButton from "./components/GenerateButton";
 import ProgressSteps from "./components/ProgressSteps";
 import type { StepLabel } from "./components/ProgressSteps";
@@ -13,7 +12,6 @@ const API_URL = import.meta.env.VITE_API_URL || "";
 const CACHE_KEY = "scenario-gen-cache";
 
 export type Category = "autonomous" | "humanoid";
-export type InputMode = "text" | "upload";
 export type StepState = "pending" | "active" | "done" | "error";
 
 const TEXT_STEP_LABELS: StepLabel[] = [
@@ -75,7 +73,6 @@ function saveCache(state: CachedState) {
 export default function App() {
   const cached = useRef(loadCache());
 
-  const [inputMode, setInputMode] = useState<InputMode>("text");
   const [category, setCategory] = useState<Category>("autonomous");
   const [prompt, setPrompt] = useState("");
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
@@ -125,8 +122,9 @@ export default function App() {
   );
 
   const generate = useCallback(async () => {
-    if (inputMode === "text" && !prompt.trim()) return;
-    if (inputMode === "upload" && uploadFiles.length === 0) return;
+    // Smart routing: if files exist, use upload route; otherwise use text route
+    const hasFiles = uploadFiles.length > 0;
+    if (!hasFiles && !prompt.trim()) return;
     if (generating) return;
 
     // Cancel any previous request
@@ -150,13 +148,15 @@ export default function App() {
       runId: "",
     };
 
-    if (inputMode === "upload") {
+    if (hasFiles) {
+      // Image-to-3D route (ignore prompt)
       setSteps({
         upload: { state: "active", detail: "" },
         world: { state: "pending", detail: "" },
       });
       setDebugData(freshDebug);
     } else {
+      // Text-to-3D route
       setSteps({
         expand: { state: "pending", detail: "" },
         video: { state: "pending", detail: "" },
@@ -168,7 +168,7 @@ export default function App() {
     try {
       let resp: Response;
 
-      if (inputMode === "upload") {
+      if (hasFiles) {
         const formData = new FormData();
         uploadFiles.forEach((f) => formData.append("files", f));
         resp = await fetch(`${API_URL}/upload`, {
@@ -252,7 +252,7 @@ export default function App() {
     }
 
     setGenerating(false);
-  }, [prompt, category, inputMode, uploadFiles, generating, setStepState]);
+  }, [prompt, category, uploadFiles, generating, setStepState]);
 
   function handleEvent(data: Record<string, unknown>) {
     const step = data.step as string;
@@ -337,7 +337,6 @@ export default function App() {
     abortRef.current = null;
 
     // Reset all state to initial values
-    setInputMode("text");
     setCategory("autonomous");
     setPrompt("");
     setUploadFiles([]);
@@ -383,41 +382,18 @@ export default function App() {
               Generate realistic training environments for autonomous vehicles and humanoid robots.
             </p>
           </div>
-          <div className="mode-toggle">
-            <button
-              className={`mode-btn${inputMode === "text" ? " active" : ""}`}
-              onClick={() => setInputMode("text")}
-            >
-              Text to 3D
-            </button>
-            <button
-              className={`mode-btn${inputMode === "upload" ? " active" : ""}`}
-              onClick={() => setInputMode("upload")}
-            >
-              Images to 3D
-            </button>
-          </div>
-
-          {inputMode === "text" ? (
-            <>
-              <TabSelector category={category} onSelect={setCategory} />
-              <PromptInput
-                category={category}
-                prompt={prompt}
-                onPromptChange={setPrompt}
-              />
-            </>
-          ) : (
-            <ImageUpload files={uploadFiles} onFilesChange={setUploadFiles} />
-          )}
+          <TabSelector category={category} onSelect={setCategory} />
+          <PromptInput
+            category={category}
+            prompt={prompt}
+            onPromptChange={setPrompt}
+            files={uploadFiles}
+            onFilesChange={setUploadFiles}
+          />
 
           <GenerateButton
             generating={generating}
-            disabled={
-              inputMode === "text"
-                ? !prompt.trim()
-                : uploadFiles.length === 0
-            }
+            disabled={uploadFiles.length === 0 && !prompt.trim()}
             onClick={generate}
           />
         </div>
@@ -438,7 +414,7 @@ export default function App() {
         {showProgress && (
           <ProgressSteps
             steps={steps}
-            stepLabels={inputMode === "upload" ? UPLOAD_STEP_LABELS : TEXT_STEP_LABELS}
+            stepLabels={uploadFiles.length > 0 ? UPLOAD_STEP_LABELS : TEXT_STEP_LABELS}
           />
         )}
 

@@ -234,6 +234,9 @@ body {
 .input-area {
   margin-bottom: 16px;
 }
+.textarea-container {
+  position: relative;
+}
 .input-area textarea {
   width: 100%;
   background: #0a0a0a;
@@ -241,7 +244,7 @@ body {
   border-radius: 8px;
   color: #ededed;
   font-size: 14px;
-  padding: 12px 14px;
+  padding: 12px 48px 12px 14px;
   resize: vertical;
   min-height: 80px;
   font-family: inherit;
@@ -253,6 +256,86 @@ body {
 }
 .input-area textarea::placeholder {
   color: #444;
+}
+.upload-icon-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: transparent;
+  border: 1px solid #1a1a1a;
+  border-radius: 6px;
+  color: #555;
+  font-size: 18px;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1;
+}
+.upload-icon-btn:hover {
+  background: #111;
+  border-color: #333;
+  color: #ededed;
+}
+
+/* ---- Compact file list ---- */
+
+.file-list-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  margin-bottom: 10px;
+  align-items: center;
+}
+.file-chip-compact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: #111;
+  border: 1px solid #1a1a1a;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: "Geist Mono", monospace;
+}
+.file-chip-compact .file-name {
+  color: #999;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-chip-compact .file-size {
+  color: #444;
+}
+.file-chip-compact .file-remove {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.file-chip-compact .file-remove:hover {
+  color: #ee4444;
+}
+.clear-files-compact {
+  background: none;
+  border: none;
+  color: #444;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: "Geist Mono", monospace;
+  text-decoration: underline;
+  text-decoration-color: #222;
+  text-underline-offset: 2px;
+  transition: color 0.15s;
+  padding: 0;
+}
+.clear-files-compact:hover {
+  color: #ededed;
 }
 
 /* ---- Example chips ---- */
