@@ -15,6 +15,17 @@ export default function ProgressSteps({ steps, stepLabels }: ProgressStepsProps)
     <div className="progress active">
       {stepLabels.map((s, i) => {
         const info = steps[s.key];
+        // Safety check: if step doesn't exist, default to pending state
+        if (!info) {
+          return (
+            <div key={s.key} className="step pending">
+              <div className="step-icon">{i + 1}</div>
+              <div>
+                <div className="step-text">{s.label}</div>
+              </div>
+            </div>
+          );
+        }
         return (
           <div key={s.key} className={`step ${info.state}`}>
             <div className="step-icon">
