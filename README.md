@@ -1,9 +1,11 @@
 # Mirage
+
+Won 1st place at TreeHacks Modal prize 2026!
+
 Robots and self-driving cars need training data. SynSplatt synthesize 3D world-model training data covering hard-to-capture scenes - like driving in a hailstorm.
 
  - https://github.com/kyan-yang/Mirage
  - Try it at vercel
- - demo video
 
 Created at TreeHacks 2026 by Shrey Birmiwal, Kyan Yang, Kevin Thomas, Adi Prasad
 
